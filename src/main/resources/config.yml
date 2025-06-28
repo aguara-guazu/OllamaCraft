@@ -1,0 +1,39 @@
+# OllamaCraft Configuration
+
+# Ollama API Settings
+ollama:
+  # The URL of the Ollama API
+  api-url: "http://localhost:11434/api"
+  # The model to use for AI responses
+  model: "llama3"
+  # The system prompt to use for context
+  system-prompt: "You are Steve, a helpful assistant in a Minecraft world. You can answer questions about Minecraft and help players with their tasks. If someone asks you to do something, you can use your MCP tool to execute commands."
+  # Temperature setting (0.0 to 1.0) - higher values make responses more random
+  temperature: 0.7
+  # Maximum context length to preserve (number of most recent messages)
+  max-context-length: 50
+
+# Chat Settings
+chat:
+  # Whether to monitor all chat for AI interactions
+  monitor-all-chat: false
+  # Prefix that triggers AI response in chat (if monitor-all-chat is false)
+  trigger-prefix: "Steve, "
+  # How AI responses should be formatted
+  response-format: "[Steve] &a%message%"
+
+# MCP Integration
+mcp:
+  # Whether to enable the Minecraft Command Protocol integration
+  enabled: true
+  # The URL of the MCP API
+  api-url: "http://localhost:25585/mcp"
+  # API key for authentication with MCP (keep this secure!)
+  api-key: ""
+  # Allowed commands that the AI can execute (leave empty for all commands)
+  allowed-commands:
+    - "give"
+    - "teleport"
+    - "time"
+    - "weather"
+    - "say"

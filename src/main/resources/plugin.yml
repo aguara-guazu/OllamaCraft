@@ -1,0 +1,27 @@
+name: OllamaCraft
+version: '${project.version}'
+main: com.ollamacraft.plugin.OllamaCraft
+api-version: '1.21'
+description: A plugin to interact with Ollama-hosted AI model through Minecraft chat
+authors: [OllamaCraft]
+website: https://github.com/OllamaCraft/OllamaCraft
+
+commands:
+  ai:
+    description: Interact with the AI assistant
+    usage: /<command> <message>
+    permission: ollamacraft.ai
+    aliases: [ask]
+  aiconfig:
+    description: Configure AI settings
+    usage: /<command> <setting> <value>
+    permission: ollamacraft.config
+    aliases: [aiconf]
+
+permissions:
+  ollamacraft.ai:
+    description: Allows users to interact with AI
+    default: true
+  ollamacraft.config:
+    description: Allows users to configure AI settings
+    default: op
