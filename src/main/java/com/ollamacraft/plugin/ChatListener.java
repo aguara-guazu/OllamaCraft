@@ -59,19 +59,17 @@ public class ChatListener implements Listener {
         
         // Check if the message should trigger an AI response
         if (shouldProcessMessage(message)) {
-            // Remove prefix if present
-            String query = message;
-            if (message.startsWith(triggerPrefix)) {
-                query = message.substring(triggerPrefix.length()).trim();
-            }
-            
             // Don't cancel the event, let the chat message go through
             
             // Process AI query asynchronously
+            final String queryToProcess = message.startsWith(triggerPrefix) 
+                ? message.substring(triggerPrefix.length()).trim() 
+                : message;
+                
             CompletableFuture.runAsync(() -> {
                 try {
                     // Get response from AI
-                    String aiResponse = plugin.getAIService().sendChatMessage(player, query);
+                    String aiResponse = plugin.getAIService().sendChatMessage(player, queryToProcess);
                     
                     // Format the response
                     String formattedResponse = formatResponse(aiResponse);
