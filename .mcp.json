@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "minecraft": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "minecraft-claude-client",
+        "--server",
+        "http://localhost:25575",
+        "--api-key",
+        "your-secure-api-key-from-plugin-config"
+      ]
+    }
+  }
+}

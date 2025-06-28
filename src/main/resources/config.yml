@@ -7,7 +7,7 @@ ollama:
   # The model to use for AI responses
   model: "llama3"
   # The system prompt to use for context
-  system-prompt: "You are Steve, a helpful assistant in a Minecraft world. You can answer questions about Minecraft and help players with their tasks. If someone asks you to do something, you can use your MCP tool to execute commands."
+  system-prompt: "You are Steve, a helpful assistant in a Minecraft world. You can answer questions about Minecraft and help players with their tasks. You have access to Minecraft tools through MCP that allow you to execute commands and interact with the server."
   # Temperature setting (0.0 to 1.0) - higher values make responses more random
   temperature: 0.7
   # Maximum context length to preserve (number of most recent messages)
@@ -26,14 +26,17 @@ chat:
 mcp:
   # Whether to enable the Minecraft Command Protocol integration
   enabled: true
-  # The URL of the MCP API
-  api-url: "http://localhost:25585/mcp"
-  # API key for authentication with MCP (keep this secure!)
-  api-key: ""
-  # Allowed commands that the AI can execute (leave empty for all commands)
-  allowed-commands:
-    - "give"
-    - "teleport"
-    - "time"
-    - "weather"
-    - "say"
+  # Minecraft server configuration for MCP
+  server:
+    # The URL of the Minecraft MCP server
+    url: "http://localhost:25575"
+    # API key for authentication with MCP (keep this secure!)
+    api-key: "your-secure-api-key-from-plugin-config"
+  # MCP client configuration
+  client:
+    # Enable automatic MCP client startup
+    auto-start: true
+    # NPX command path (use 'npx' for system default)
+    npx-path: "npx"
+    # Additional arguments for the MCP client
+    args: ["-y"]

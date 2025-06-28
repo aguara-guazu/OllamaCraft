@@ -36,6 +36,12 @@ public class OllamaCraft extends JavaPlugin {
     public void onDisable() {
         // Clean up resources
         if (aiService != null) {
+            // Stop MCP server if running
+            if (aiService.getMcpService() != null && aiService.getMcpService().isRunning()) {
+                getLogger().info("Stopping MCP server...");
+                aiService.getMcpService().stopMCPServer().join();
+            }
+            
             aiService.shutdown();
         }
         

@@ -68,9 +68,7 @@ public class AIService {
         messageHistory.setMaxHistoryLength(maxContextLength);
         
         // Initialize MCP service
-        if (config.getBoolean("mcp.enabled", true)) {
-            mcpService.initialize();
-        }
+        mcpService.initialize();
     }
     
     /**
@@ -136,11 +134,6 @@ public class AIService {
             
             // Add assistant response to history
             messageHistory.addMessage(new ChatMessage("assistant", aiResponse));
-            
-            // Check for MCP commands in the response
-            if (mcpService.isEnabled()) {
-                mcpService.processAIResponse(aiResponse, player);
-            }
             
             return aiResponse;
         } catch (Exception e) {

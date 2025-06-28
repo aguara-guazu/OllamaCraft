@@ -34,6 +34,10 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
         settingOptions.put("monitor-all-chat", Arrays.asList("true", "false"));
         settingOptions.put("max-context-length", Arrays.asList("10", "20", "50", "100"));
         settingOptions.put("mcp-enabled", Arrays.asList("true", "false"));
+        settingOptions.put("mcp-start", new ArrayList<>());
+        settingOptions.put("mcp-stop", new ArrayList<>());
+        settingOptions.put("mcp-restart", new ArrayList<>());
+        settingOptions.put("mcp-status", new ArrayList<>());
         settingOptions.put("reload", new ArrayList<>());
     }
 
@@ -54,6 +58,27 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
         
         if (subCommand.equals("reload")) {
             handleReload(sender);
+            return true;
+        }
+        
+        // Handle MCP server management commands
+        if (subCommand.equals("mcp-start")) {
+            handleMcpStart(sender);
+            return true;
+        }
+        
+        if (subCommand.equals("mcp-stop")) {
+            handleMcpStop(sender);
+            return true;
+        }
+        
+        if (subCommand.equals("mcp-restart")) {
+            handleMcpRestart(sender);
+            return true;
+        }
+        
+        if (subCommand.equals("mcp-status")) {
+            handleMcpStatus(sender);
             return true;
         }
         
@@ -111,6 +136,15 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
                         .color(NamedTextColor.WHITE)));
         sender.sendMessage(Component.text("MCP Enabled: ").color(NamedTextColor.YELLOW)
                 .append(Component.text(String.valueOf(aiService.getMcpService().isEnabled()))
+                        .color(NamedTextColor.WHITE)));
+        sender.sendMessage(Component.text("MCP Server Running: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(String.valueOf(aiService.getMcpService().isRunning()))
+                        .color(NamedTextColor.WHITE)));
+        sender.sendMessage(Component.text("MCP Server URL: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(aiService.getMcpService().getServerUrl())
+                        .color(NamedTextColor.WHITE)));
+        sender.sendMessage(Component.text("MCP API Key: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(aiService.getMcpService().getMaskedApiKey())
                         .color(NamedTextColor.WHITE)));
     }
     
@@ -235,6 +269,108 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
         
         sender.sendMessage(Component.text("Configuration reloaded successfully.")
                 .color(NamedTextColor.GREEN));
+    }
+    
+    /**
+     * Handle MCP server start
+     * @param sender The command sender
+     */
+    private void handleMcpStart(CommandSender sender) {
+        MCPService mcpService = plugin.getAIService().getMcpService();
+        
+        if (!mcpService.isEnabled()) {
+            sender.sendMessage(Component.text("MCP integration is disabled. Enable it first with /aiconfig mcp-enabled true")
+                    .color(NamedTextColor.RED));
+            return;
+        }
+        
+        if (mcpService.isRunning()) {
+            sender.sendMessage(Component.text("MCP server is already running.")
+                    .color(NamedTextColor.YELLOW));
+            return;
+        }
+        
+        sender.sendMessage(Component.text("Starting MCP server...")
+                .color(NamedTextColor.YELLOW));
+        
+        mcpService.startMCPServer().thenAccept(success -> {
+            if (success) {
+                sender.sendMessage(Component.text("MCP server started successfully.")
+                        .color(NamedTextColor.GREEN));
+            } else {
+                sender.sendMessage(Component.text("Failed to start MCP server. Check logs for details.")
+                        .color(NamedTextColor.RED));
+            }
+        });
+    }
+    
+    /**
+     * Handle MCP server stop
+     * @param sender The command sender
+     */
+    private void handleMcpStop(CommandSender sender) {
+        MCPService mcpService = plugin.getAIService().getMcpService();
+        
+        if (!mcpService.isRunning()) {
+            sender.sendMessage(Component.text("MCP server is not running.")
+                    .color(NamedTextColor.YELLOW));
+            return;
+        }
+        
+        sender.sendMessage(Component.text("Stopping MCP server...")
+                .color(NamedTextColor.YELLOW));
+        
+        mcpService.stopMCPServer().thenRun(() -> {
+            sender.sendMessage(Component.text("MCP server stopped successfully.")
+                    .color(NamedTextColor.GREEN));
+        });
+    }
+    
+    /**
+     * Handle MCP server restart
+     * @param sender The command sender
+     */
+    private void handleMcpRestart(CommandSender sender) {
+        MCPService mcpService = plugin.getAIService().getMcpService();
+        
+        if (!mcpService.isEnabled()) {
+            sender.sendMessage(Component.text("MCP integration is disabled. Enable it first with /aiconfig mcp-enabled true")
+                    .color(NamedTextColor.RED));
+            return;
+        }
+        
+        sender.sendMessage(Component.text("Restarting MCP server...")
+                .color(NamedTextColor.YELLOW));
+        
+        mcpService.restartMCPServer().thenAccept(success -> {
+            if (success) {
+                sender.sendMessage(Component.text("MCP server restarted successfully.")
+                        .color(NamedTextColor.GREEN));
+            } else {
+                sender.sendMessage(Component.text("Failed to restart MCP server. Check logs for details.")
+                        .color(NamedTextColor.RED));
+            }
+        });
+    }
+    
+    /**
+     * Handle MCP server status
+     * @param sender The command sender
+     */
+    private void handleMcpStatus(CommandSender sender) {
+        MCPService mcpService = plugin.getAIService().getMcpService();
+        
+        sender.sendMessage(Component.text("=== MCP Server Status ===").color(NamedTextColor.GOLD));
+        sender.sendMessage(Component.text("Enabled: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(String.valueOf(mcpService.isEnabled()))
+                        .color(mcpService.isEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+        sender.sendMessage(Component.text("Running: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(String.valueOf(mcpService.isRunning()))
+                        .color(mcpService.isRunning() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+        sender.sendMessage(Component.text("Server URL: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(mcpService.getServerUrl()).color(NamedTextColor.WHITE)));
+        sender.sendMessage(Component.text("API Key: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(mcpService.getMaskedApiKey()).color(NamedTextColor.WHITE)));
     }
 
     @Override
