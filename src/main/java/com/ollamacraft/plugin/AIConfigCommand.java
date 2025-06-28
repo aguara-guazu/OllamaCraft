@@ -367,6 +367,9 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(Component.text("Running: ").color(NamedTextColor.YELLOW)
                 .append(Component.text(String.valueOf(mcpService.isRunning()))
                         .color(mcpService.isRunning() ? NamedTextColor.GREEN : NamedTextColor.RED)));
+        sender.sendMessage(Component.text("Bridge Mode: ").color(NamedTextColor.YELLOW)
+                .append(Component.text(mcpService.isUsingIntegratedBridge() ? "Integrated Java" : "External NPX")
+                        .color(mcpService.isUsingIntegratedBridge() ? NamedTextColor.GREEN : NamedTextColor.BLUE)));
         sender.sendMessage(Component.text("Server URL: ").color(NamedTextColor.YELLOW)
                 .append(Component.text(mcpService.getServerUrl()).color(NamedTextColor.WHITE)));
         sender.sendMessage(Component.text("API Key: ").color(NamedTextColor.YELLOW)

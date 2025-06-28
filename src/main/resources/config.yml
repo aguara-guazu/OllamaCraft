@@ -32,7 +32,25 @@ mcp:
     url: "http://localhost:25575"
     # API key for authentication with MCP (keep this secure!)
     api-key: "your-secure-api-key-from-plugin-config"
-  # MCP client configuration
+  # MCP tools configuration
+  tools:
+    # Enable MCP tools for the AI model (allows AI to execute Minecraft commands)
+    enabled: true
+  # MCP bridge configuration
+  bridge:
+    # Use the integrated Java bridge instead of external NPX client
+    use-integrated: true
+    # Enable debug logging for the bridge
+    debug: false
+    # HTTP endpoint path for MCP server
+    endpoint: "/mcp"
+    # Request timeout in milliseconds
+    timeout-ms: 30000
+    # Number of retry attempts for failed requests
+    retries: 3
+    # Delay between retries in milliseconds
+    retry-delay-ms: 1000
+  # MCP client configuration (legacy NPX mode)
   client:
     # Enable automatic MCP client startup
     auto-start: true
