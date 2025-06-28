@@ -98,7 +98,7 @@ public class AIService {
             Thread.sleep(1000);
             
             if (mcpService.isRunning()) {
-                // Get HTTP client from MCP service for tool communication
+                // Create HTTP client for tool communication
                 MCPHttpClient.MCPHttpClientOptions options = new MCPHttpClient.MCPHttpClientOptions(
                     mcpService.getServerUrl(), 
                     mcpService.getApiKey()
@@ -111,9 +111,9 @@ public class AIService {
                 toolProvider = new MCPToolProvider(httpClient, plugin.getLogger());
                 toolExecutor = new MCPToolExecutor(httpClient, toolProvider, plugin.getLogger());
                 
-                plugin.getLogger().info("MCP tools integration initialized");
+                plugin.getLogger().info("MCP tools integration initialized with native Java bridge");
             } else {
-                plugin.getLogger().warning("MCP service not running, tools integration disabled");
+                plugin.getLogger().warning("MCP bridge not running, tools integration disabled");
             }
         } catch (Exception e) {
             plugin.getLogger().log(Level.WARNING, "Failed to initialize MCP tools integration", e);

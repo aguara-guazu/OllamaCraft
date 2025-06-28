@@ -26,7 +26,7 @@ chat:
 mcp:
   # Whether to enable the Minecraft Command Protocol integration
   enabled: true
-  # Minecraft server configuration for MCP
+  # MCP server configuration
   server:
     # The URL of the Minecraft MCP server
     url: "http://localhost:25575"
@@ -38,8 +38,6 @@ mcp:
     enabled: true
   # MCP bridge configuration
   bridge:
-    # Use the integrated Java bridge instead of external NPX client
-    use-integrated: true
     # Enable debug logging for the bridge
     debug: false
     # HTTP endpoint path for MCP server
@@ -50,11 +48,3 @@ mcp:
     retries: 3
     # Delay between retries in milliseconds
     retry-delay-ms: 1000
-  # MCP client configuration (legacy NPX mode)
-  client:
-    # Enable automatic MCP client startup
-    auto-start: true
-    # NPX command path (use 'npx' for system default)
-    npx-path: "npx"
-    # Additional arguments for the MCP client
-    args: ["-y"]

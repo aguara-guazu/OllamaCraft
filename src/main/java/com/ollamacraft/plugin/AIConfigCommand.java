@@ -290,15 +290,15 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
             return;
         }
         
-        sender.sendMessage(Component.text("Starting MCP server...")
+        sender.sendMessage(Component.text("Starting MCP bridge...")
                 .color(NamedTextColor.YELLOW));
         
-        mcpService.startMCPServer().thenAccept(success -> {
+        mcpService.startMCPBridge().thenAccept(success -> {
             if (success) {
-                sender.sendMessage(Component.text("MCP server started successfully.")
+                sender.sendMessage(Component.text("MCP bridge started successfully.")
                         .color(NamedTextColor.GREEN));
             } else {
-                sender.sendMessage(Component.text("Failed to start MCP server. Check logs for details.")
+                sender.sendMessage(Component.text("Failed to start MCP bridge. Check logs for details.")
                         .color(NamedTextColor.RED));
             }
         });
@@ -317,11 +317,11 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
             return;
         }
         
-        sender.sendMessage(Component.text("Stopping MCP server...")
+        sender.sendMessage(Component.text("Stopping MCP bridge...")
                 .color(NamedTextColor.YELLOW));
         
-        mcpService.stopMCPServer().thenRun(() -> {
-            sender.sendMessage(Component.text("MCP server stopped successfully.")
+        mcpService.stopMCPBridge().thenRun(() -> {
+            sender.sendMessage(Component.text("MCP bridge stopped successfully.")
                     .color(NamedTextColor.GREEN));
         });
     }
@@ -339,15 +339,15 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
             return;
         }
         
-        sender.sendMessage(Component.text("Restarting MCP server...")
+        sender.sendMessage(Component.text("Restarting MCP bridge...")
                 .color(NamedTextColor.YELLOW));
         
-        mcpService.restartMCPServer().thenAccept(success -> {
+        mcpService.restartMCPBridge().thenAccept(success -> {
             if (success) {
-                sender.sendMessage(Component.text("MCP server restarted successfully.")
+                sender.sendMessage(Component.text("MCP bridge restarted successfully.")
                         .color(NamedTextColor.GREEN));
             } else {
-                sender.sendMessage(Component.text("Failed to restart MCP server. Check logs for details.")
+                sender.sendMessage(Component.text("Failed to restart MCP bridge. Check logs for details.")
                         .color(NamedTextColor.RED));
             }
         });
@@ -360,16 +360,15 @@ public class AIConfigCommand implements CommandExecutor, TabCompleter {
     private void handleMcpStatus(CommandSender sender) {
         MCPService mcpService = plugin.getAIService().getMcpService();
         
-        sender.sendMessage(Component.text("=== MCP Server Status ===").color(NamedTextColor.GOLD));
+        sender.sendMessage(Component.text("=== MCP Bridge Status ===").color(NamedTextColor.GOLD));
         sender.sendMessage(Component.text("Enabled: ").color(NamedTextColor.YELLOW)
                 .append(Component.text(String.valueOf(mcpService.isEnabled()))
                         .color(mcpService.isEnabled() ? NamedTextColor.GREEN : NamedTextColor.RED)));
         sender.sendMessage(Component.text("Running: ").color(NamedTextColor.YELLOW)
                 .append(Component.text(String.valueOf(mcpService.isRunning()))
                         .color(mcpService.isRunning() ? NamedTextColor.GREEN : NamedTextColor.RED)));
-        sender.sendMessage(Component.text("Bridge Mode: ").color(NamedTextColor.YELLOW)
-                .append(Component.text(mcpService.isUsingIntegratedBridge() ? "Integrated Java" : "External NPX")
-                        .color(mcpService.isUsingIntegratedBridge() ? NamedTextColor.GREEN : NamedTextColor.BLUE)));
+        sender.sendMessage(Component.text("Implementation: ").color(NamedTextColor.YELLOW)
+                .append(Component.text("Native Java Bridge").color(NamedTextColor.GREEN)));
         sender.sendMessage(Component.text("Server URL: ").color(NamedTextColor.YELLOW)
                 .append(Component.text(mcpService.getServerUrl()).color(NamedTextColor.WHITE)));
         sender.sendMessage(Component.text("API Key: ").color(NamedTextColor.YELLOW)

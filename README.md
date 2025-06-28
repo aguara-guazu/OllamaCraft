@@ -16,11 +16,11 @@ OllamaCraft is a powerful PaperMC plugin that brings AI assistance directly into
 - Player management, world control, and server monitoring
 - Intelligent decision-making for when and how to use tools
 
-### 🔧 **Integrated MCP Bridge**
-- Native Java implementation - no external dependencies
+### 🔧 **Native MCP Bridge**
+- Pure Java implementation - no external dependencies
 - Automatic tool discovery from MCP servers
 - Robust error handling and retry logic
-- Dual mode support (integrated vs external bridge)
+- Zero configuration required
 
 ### ⚙️ **Flexible Configuration**
 - Comprehensive YAML configuration
@@ -145,9 +145,6 @@ mcp:
   
   # MCP bridge configuration
   bridge:
-    # Use integrated Java bridge (recommended)
-    use-integrated: true
-    
     # Enable debug logging for troubleshooting
     debug: false
     
@@ -162,17 +159,6 @@ mcp:
     
     # Delay between retries in milliseconds
     retry-delay-ms: 1000
-  
-  # Legacy NPX client configuration (only used if use-integrated: false)
-  client:
-    # Automatically start MCP client
-    auto-start: true
-    
-    # Path to NPX command
-    npx-path: "npx"
-    
-    # Additional NPX arguments
-    args: ["-y"]
 ```
 
 ### Setting Up MinecraftMCP Server
@@ -300,16 +286,14 @@ response-format: "&e&l[Steve] &r&a%message%"
 response-format: "%message%"
 ```
 
-### MCP Bridge Modes
+### MCP Bridge Settings
 
 ```yaml
-# Integrated mode (recommended) - no external dependencies
+# Native Java bridge - fully integrated, no external dependencies
 bridge:
-  use-integrated: true
-
-# Legacy mode - uses external NPX package
-bridge:
-  use-integrated: false
+  debug: false          # Enable for troubleshooting
+  timeout-ms: 30000     # Adjust for network conditions
+  retries: 3            # Number of retry attempts
 ```
 
 ## 🛡️ Permissions
@@ -415,7 +399,7 @@ Look for these log messages:
 - **MCPToolProvider**: Discovers and caches MCP tools
 - **MCPToolExecutor**: Executes tool calls and handles responses
 - **MCPHttpClient**: HTTP communication with MCP servers
-- **MCPBridge**: stdio/HTTP bridge for external clients
+- **MCPBridge**: stdio/HTTP bridge for Claude Desktop integration
 
 ### Data Flow
 
