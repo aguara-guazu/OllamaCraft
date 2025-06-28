@@ -53,6 +53,11 @@ jobs:
         distribution: 'temurin'
         cache: maven
 
+    - name: Update pom.xml version
+      run: |
+        echo "Updating pom.xml version to ${{ github.event.inputs.version }}"
+        mvn versions:set -DnewVersion=${{ github.event.inputs.version }} -DgenerateBackupPoms=false
+
     - name: Build with Maven
       run: mvn -B package --file pom.xml
 

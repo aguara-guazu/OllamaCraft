@@ -50,6 +50,11 @@ jobs:
           echo "version=$new_version" >> $GITHUB_OUTPUT
           echo "tag=v$new_version" >> $GITHUB_OUTPUT
 
+      - name: Update pom.xml version
+        run: |
+          echo "Updating pom.xml version to ${{ steps.calculate_version.outputs.version }}"
+          mvn versions:set -DnewVersion=${{ steps.calculate_version.outputs.version }} -DgenerateBackupPoms=false
+
       - name: Build with Maven
         run: mvn -B package --file pom.xml
 
