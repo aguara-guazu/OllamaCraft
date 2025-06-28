@@ -20,20 +20,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+
     - name: Set up JDK 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: maven
-    
+
     - name: Build with Maven
       run: mvn -B package --file pom.xml
-    
+
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: OllamaCraft
         path: target/ollamacraft-*.jar
@@ -42,36 +42,39 @@ jobs:
     needs: build
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
+    - uses: actions/checkout@v4
+
     - name: Set up JDK 17
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
         cache: maven
-    
+
     - name: Build with Maven
       run: mvn -B package --file pom.xml
-      
+
     - name: Find JAR file
       id: find_jar
       run: |
         jar_path=$(find target -name "ollamacraft-*.jar" | head -n 1)
+        if [ -z "$jar_path" ]; then
+          echo "No JAR file found!"
+          exit 1
+        fi
+        echo "Found JAR: $jar_path"
         echo "jar_path=$jar_path" >> $GITHUB_OUTPUT
-    
+
     - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v1
       with:
         tag_name: v${{ github.event.inputs.version }}
-        release_name: OllamaCraft v${{ github.event.inputs.version }}
+        name: OllamaCraft v${{ github.event.inputs.version }}
         draft: false
         prerelease: false
+        files: ${{ steps.find_jar.outputs.jar_path }}
         body: |
           # OllamaCraft v${{ github.event.inputs.version }}
           
@@ -82,14 +85,5 @@ jobs:
           3. Start or restart your server
           
           See the [README](https://github.com/aguara-guazu/OllamaCraft/blob/main/README.md) for more details.
-    
-    - name: Upload Release Asset
-      id: upload-release-asset
-      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ${{ steps.find_jar.outputs.jar_path }}
-        asset_name: OllamaCraft-${{ github.event.inputs.version }}.jar
-        asset_content_type: application/java-archive
