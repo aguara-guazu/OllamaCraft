@@ -1,12 +1,19 @@
-name: Build and Release
+name: Build and Manual Release
 
 on:
-  push:
-    branches: [ main ]
-    tags:
-      - 'v*'
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+        type: string
+
+# Add explicit permissions for creating releases
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -33,7 +40,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     
     steps:
@@ -48,22 +55,25 @@ jobs:
     
     - name: Build with Maven
       run: mvn -B package --file pom.xml
-    
-    - name: Get version from tag
-      id: get_version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+    - name: Find JAR file
+      id: find_jar
+      run: |
+        jar_path=$(find target -name "ollamacraft-*.jar" | head -n 1)
+        echo "jar_path=$jar_path" >> $GITHUB_OUTPUT
     
     - name: Create Release
       id: create_release
-      uses: softprops/action-gh-release@v1
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        name: OllamaCraft v${{ steps.get_version.outputs.VERSION }}
+        tag_name: v${{ github.event.inputs.version }}
+        release_name: OllamaCraft v${{ github.event.inputs.version }}
         draft: false
         prerelease: false
-        files: |
-          target/ollamacraft-*.jar
         body: |
-          # OllamaCraft v${{ steps.get_version.outputs.VERSION }}
+          # OllamaCraft v${{ github.event.inputs.version }}
           
           ## Installation
           
@@ -72,5 +82,14 @@ jobs:
           3. Start or restart your server
           
           See the [README](https://github.com/aguara-guazu/OllamaCraft/blob/main/README.md) for more details.
+    
+    - name: Upload Release Asset
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ steps.find_jar.outputs.jar_path }}
+        asset_name: OllamaCraft-${{ github.event.inputs.version }}.jar
+        asset_content_type: application/java-archive
