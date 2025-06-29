@@ -11,9 +11,12 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Service to interact with Ollama AI API
@@ -37,6 +40,9 @@ public class AIService {
     private int maxRetries;
     private int baseRetryDelayMs;
     private int requestTimeoutSeconds;
+    
+    // Fallback tool calling for models without native tool support
+    private boolean useToolFallbackMode = false;
     
     // MCP tool integration
     private MCPToolProvider toolProvider;
@@ -191,6 +197,10 @@ public class AIService {
             if (responseBody == null) {
                 // Request failed after retries, return fallback response
                 return "I'm sorry, but I'm currently experiencing technical difficulties connecting to my AI services. Please try again later.";
+            } else if ("TOOL_FALLBACK_MODE_REQUIRED".equals(responseBody)) {
+                // Model doesn't support native tool calling, use fallback mode
+                plugin.getLogger().info("Attempting conversation with fallback tool calling mode");
+                return processConversationWithFallbackTools(player);
             }
             
             // Parse response
@@ -255,6 +265,145 @@ public class AIService {
     }
     
     /**
+     * Process conversation using fallback tool calling for models that don't support native tools
+     * @param player The player for context
+     * @return The final AI response
+     */
+    private String processConversationWithFallbackTools(Player player) throws Exception {
+        plugin.getLogger().info("Using fallback tool calling mode for model that doesn't support native tools");
+        
+        int maxToolCalls = 5; // Prevent infinite loops
+        int toolCallCount = 0;
+        int parseRetries = 0;
+        int maxParseRetries = 3;
+        
+        while (toolCallCount < maxToolCalls) {
+            // Create request body with tool descriptions in system prompt
+            JsonObject requestBody = buildChatRequestWithToolDescriptions();
+            
+            // Execute request without native tools
+            String responseBody = executeOllamaRequestWithoutTools(requestBody);
+            if (responseBody == null) {
+                return "I'm sorry, but I'm currently experiencing technical difficulties connecting to my AI services. Please try again later.";
+            }
+            
+            // Parse response
+            JsonObject jsonResponse = gson.fromJson(responseBody, JsonObject.class);
+            
+            if (!jsonResponse.has("message")) {
+                plugin.getLogger().warning("Invalid Ollama API response format: missing message field");
+                return "I received an invalid response from my AI services. Please try again.";
+            }
+            
+            JsonObject message = jsonResponse.getAsJsonObject("message");
+            String aiResponse = message.has("content") ? message.get("content").getAsString() : "";
+            
+            // Try to parse tool calls from the text response
+            ToolCallParseResult parseResult = parseTextBasedToolCalls(aiResponse);
+            
+            if (parseResult.hasToolCalls()) {
+                toolCallCount++;
+                plugin.getLogger().info("Parsed " + parseResult.getToolCalls().size() + " tool calls from AI response");
+                
+                // Add the assistant message to history
+                messageHistory.addMessage(new ChatMessage("assistant", parseResult.getCleanedResponse()));
+                
+                // Execute each tool call
+                boolean allToolsSuccessful = true;
+                for (ParsedToolCall toolCall : parseResult.getToolCalls()) {
+                    try {
+                        // Convert to MCP format and execute
+                        JsonObject mcpToolCall = convertToMCPToolCall(toolCall);
+                        JsonObject toolResult = toolExecutor.executeToolCall(mcpToolCall).join();
+                        
+                        // Add tool result to history
+                        String toolResultContent = toolResult.has("content") ? 
+                            toolResult.get("content").getAsString() : "Tool executed successfully";
+                        messageHistory.addMessage(new ChatMessage("tool", toolResultContent));
+                        
+                        plugin.getLogger().info("Fallback tool executed: " + toolCall.getToolName() + " -> " + toolResultContent);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Failed to execute fallback tool " + toolCall.getToolName() + ": " + e.getMessage());
+                        messageHistory.addMessage(new ChatMessage("tool", "Error: Tool execution failed - " + e.getMessage()));
+                        allToolsSuccessful = false;
+                    }
+                }
+                
+                // Continue the loop to get the AI's response after tool execution
+                parseRetries = 0; // Reset parse retries on successful tool execution
+                continue;
+                
+            } else if (parseResult.hasMalformedToolCall()) {
+                // Response seems to attempt tool calling but is malformed
+                parseRetries++;
+                plugin.getLogger().warning("Detected malformed tool call attempt (retry " + parseRetries + "/" + maxParseRetries + ")");
+                
+                if (parseRetries < maxParseRetries) {
+                    // Add clarification message and retry
+                    String clarificationPrompt = "I notice you tried to use a tool, but the format was incorrect. " +
+                        "Please use the exact format: TOOL_CALL: tool_name\\nPARAMETERS: {\"param\": \"value\"}\\nREASONING: why you're using this tool";
+                    messageHistory.addMessage(new ChatMessage("user", clarificationPrompt));
+                    continue;
+                } else {
+                    // Too many failed parse attempts
+                    plugin.getLogger().warning("Too many malformed tool call attempts, giving up on tool parsing");
+                    String fallbackMessage = "I'm having trouble with my tool calling system. Let me provide a direct response instead: " + aiResponse;
+                    messageHistory.addMessage(new ChatMessage("assistant", fallbackMessage));
+                    return fallbackMessage;
+                }
+            }
+            
+            // No tool calls detected, this is the final response
+            messageHistory.addMessage(new ChatMessage("assistant", aiResponse));
+            return aiResponse;
+        }
+        
+        // Too many tool calls, return a message
+        String fallbackResponse = "I've attempted several tool operations but let me provide you with a summary of what I found.";
+        messageHistory.addMessage(new ChatMessage("assistant", fallbackResponse));
+        return fallbackResponse;
+    }
+    
+    /**
+     * Helper class to represent a parsed tool call from text
+     */
+    private static class ParsedToolCall {
+        private final String toolName;
+        private final JsonObject parameters;
+        private final String reasoning;
+        
+        public ParsedToolCall(String toolName, JsonObject parameters, String reasoning) {
+            this.toolName = toolName;
+            this.parameters = parameters;
+            this.reasoning = reasoning;
+        }
+        
+        public String getToolName() { return toolName; }
+        public JsonObject getParameters() { return parameters; }
+        public String getReasoning() { return reasoning; }
+    }
+    
+    /**
+     * Helper class to represent the result of parsing tool calls from text
+     */
+    private static class ToolCallParseResult {
+        private final List<ParsedToolCall> toolCalls;
+        private final String cleanedResponse;
+        private final boolean hasMalformedToolCall;
+        
+        public ToolCallParseResult(List<ParsedToolCall> toolCalls, String cleanedResponse, boolean hasMalformedToolCall) {
+            this.toolCalls = toolCalls;
+            this.cleanedResponse = cleanedResponse;
+            this.hasMalformedToolCall = hasMalformedToolCall;
+        }
+        
+        public boolean hasToolCalls() { return !toolCalls.isEmpty(); }
+        public boolean hasMalformedToolCall() { return hasMalformedToolCall; }
+        public List<ParsedToolCall> getToolCalls() { return toolCalls; }
+        public String getCleanedResponse() { return cleanedResponse; }
+    }
+    
+    /**
      * Execute Ollama API request with retry logic and error handling
      * @param requestBody The JSON request body
      * @return Response body string if successful, null if failed
@@ -296,10 +445,11 @@ public class AIService {
                         plugin.getLogger().warning("Ollama API HTTP " + response.code() + " error (attempt " + attempt + "/" + this.maxRetries + "): " + statusMessage);
                         
                         // Try to get response body for additional error details
+                        String errorContent = "";
                         try {
                             ResponseBody errorBody = response.body();
                             if (errorBody != null) {
-                                String errorContent = errorBody.string();
+                                errorContent = errorBody.string();
                                 if (!errorContent.isEmpty()) {
                                     plugin.getLogger().warning("Ollama API error response body: " + errorContent);
                                 }
@@ -308,7 +458,15 @@ public class AIService {
                             plugin.getLogger().warning("Could not read error response body: " + bodyException.getMessage());
                         }
                         
-                        // Check for non-recoverable errors but don't return immediately
+                        // Check if model doesn't support tools and should use fallback mode
+                        if (response.code() == 400 && errorContent.contains("does not support tools")) {
+                            plugin.getLogger().warning("Model does not support native tool calling - switching to fallback mode");
+                            this.useToolFallbackMode = true;
+                            // Return special marker to indicate we should retry with fallback mode
+                            return "TOOL_FALLBACK_MODE_REQUIRED";
+                        }
+                        
+                        // Check for other non-recoverable errors but don't return immediately
                         if (response.code() == 401 || response.code() == 403 || response.code() == 404) {
                             plugin.getLogger().severe("Non-recoverable Ollama API error (HTTP " + response.code() + "): " + lastErrorMessage);
                             plugin.getLogger().severe("Stopping retry attempts due to non-recoverable error");
@@ -411,6 +569,228 @@ public class AIService {
         } else {
             return "Connection error: " + message;
         }
+    }
+    
+    /**
+     * Execute Ollama API request without native tools for fallback mode
+     * @param requestBody The JSON request body (without tools array)
+     * @return Response body string if successful, null if failed
+     */
+    private String executeOllamaRequestWithoutTools(JsonObject requestBody) {
+        plugin.getLogger().info("Starting fallback Ollama API request to " + apiUrl + "/chat (model: " + model + ")");
+        
+        for (int attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                plugin.getLogger().info("Fallback Ollama API request attempt " + attempt + "/" + this.maxRetries);
+                
+                // Build HTTP request
+                Request request = new Request.Builder()
+                    .url(apiUrl + "/chat")
+                    .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                    .build();
+                
+                // Execute request
+                try (Response response = client.newCall(request).execute()) {
+                    if (response.isSuccessful()) {
+                        ResponseBody body = response.body();
+                        if (body != null) {
+                            plugin.getLogger().info("Fallback Ollama API request successful on attempt " + attempt);
+                            return body.string();
+                        } else {
+                            plugin.getLogger().warning("Fallback Ollama API returned empty response body (attempt " + attempt + "/" + this.maxRetries + ")");
+                        }
+                    } else {
+                        String statusMessage = response.message();
+                        String errorMessage = categorizeOllamaError(response.code(), statusMessage);
+                        plugin.getLogger().warning("Fallback Ollama API HTTP " + response.code() + " error (attempt " + attempt + "/" + this.maxRetries + "): " + statusMessage);
+                        
+                        // Non-recoverable errors
+                        if (response.code() == 401 || response.code() == 403 || response.code() == 404) {
+                            plugin.getLogger().severe("Non-recoverable Ollama API error: " + errorMessage);
+                            return null;
+                        }
+                    }
+                }
+                
+            } catch (IOException e) {
+                String errorMessage = categorizeOllamaIOException(e);
+                plugin.getLogger().warning("Fallback Ollama API connection error (attempt " + attempt + "/" + this.maxRetries + "): " + e.getMessage());
+                
+                if (e.getMessage() != null && e.getMessage().contains("Connection refused")) {
+                    plugin.getLogger().severe("Ollama server appears to be offline: " + errorMessage);
+                    return null;
+                }
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING, "Unexpected error during fallback Ollama API request (attempt " + attempt + "/" + this.maxRetries + ")", e);
+            }
+            
+            // Wait before retrying
+            if (attempt < this.maxRetries) {
+                int delay = this.baseRetryDelayMs * (int) Math.pow(2, attempt - 1);
+                plugin.getLogger().info("Retrying fallback Ollama request in " + delay + "ms... (attempt " + (attempt + 1) + "/" + this.maxRetries + ")");
+                
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    plugin.getLogger().warning("Fallback retry delay interrupted - stopping retry attempts");
+                    break;
+                }
+            }
+        }
+        
+        plugin.getLogger().severe("Fallback Ollama API request failed after " + this.maxRetries + " attempts");
+        return null;
+    }
+    
+    /**
+     * Build chat request with tool descriptions in system prompt for fallback mode
+     * @return The request body with enhanced system prompt
+     */
+    private JsonObject buildChatRequestWithToolDescriptions() {
+        JsonObject requestBody = new JsonObject();
+        requestBody.addProperty("model", model);
+        requestBody.addProperty("temperature", temperature);
+        requestBody.addProperty("stream", false);
+        
+        // Add messages history with enhanced system prompt
+        JsonArray messages = new JsonArray();
+        
+        // Create enhanced system message with tool descriptions
+        if (systemPrompt != null && !systemPrompt.isEmpty()) {
+            StringBuilder enhancedPrompt = new StringBuilder(systemPrompt);
+            
+            // Add tool descriptions if available
+            if (toolProvider != null && mcpToolsEnabled) {
+                try {
+                    List<JsonObject> tools = toolProvider.getToolsForOllama().join();
+                    if (!tools.isEmpty()) {
+                        enhancedPrompt.append("\\n\\nAvailable Tools:\\n");
+                        enhancedPrompt.append("When you need to use a tool, respond with the following format:\\n");
+                        enhancedPrompt.append("TOOL_CALL: tool_name\\n");
+                        enhancedPrompt.append("PARAMETERS: {\\\"param1\\\": \\\"value1\\\", \\\"param2\\\": \\\"value2\\\"}\\n");
+                        enhancedPrompt.append("REASONING: Brief explanation of why you're using this tool\\n\\n");
+                        
+                        for (JsonObject tool : tools) {
+                            if (tool.has("function")) {
+                                JsonObject function = tool.getAsJsonObject("function");
+                                String toolName = function.has("name") ? function.get("name").getAsString() : "unknown";
+                                String description = function.has("description") ? function.get("description").getAsString() : "No description";
+                                
+                                enhancedPrompt.append("- ").append(toolName).append(": ").append(description).append("\\n");
+                                
+                                if (function.has("parameters")) {
+                                    JsonObject params = function.getAsJsonObject("parameters");
+                                    if (params.has("properties")) {
+                                        JsonObject properties = params.getAsJsonObject("properties");
+                                        enhancedPrompt.append("  Parameters: ");
+                                        for (String paramName : properties.keySet()) {
+                                            JsonObject param = properties.getAsJsonObject(paramName);
+                                            String paramType = param.has("type") ? param.get("type").getAsString() : "string";
+                                            String paramDesc = param.has("description") ? param.get("description").getAsString() : "";
+                                            enhancedPrompt.append(paramName).append(" (").append(paramType).append(")");
+                                            if (!paramDesc.isEmpty()) {
+                                                enhancedPrompt.append(" - ").append(paramDesc);
+                                            }
+                                            enhancedPrompt.append(", ");
+                                        }
+                                        enhancedPrompt.setLength(enhancedPrompt.length() - 2); // Remove last comma
+                                        enhancedPrompt.append("\\n");
+                                    }
+                                }
+                                enhancedPrompt.append("\\n");
+                            }
+                        }
+                        
+                        enhancedPrompt.append("Important: Only use the TOOL_CALL format when you actually need to execute a tool. For regular conversation, respond normally.");
+                    }
+                } catch (Exception e) {
+                    plugin.getLogger().warning("Failed to add tool descriptions to prompt: " + e.getMessage());
+                }
+            }
+            
+            JsonObject systemMessage = new JsonObject();
+            systemMessage.addProperty("role", "system");
+            systemMessage.addProperty("content", enhancedPrompt.toString());
+            messages.add(systemMessage);
+        }
+        
+        // Add chat history
+        for (ChatMessage message : messageHistory.getMessages()) {
+            JsonObject chatMessage = new JsonObject();
+            chatMessage.addProperty("role", message.getRole());
+            chatMessage.addProperty("content", message.getContent());
+            messages.add(chatMessage);
+        }
+        
+        requestBody.add("messages", messages);
+        return requestBody;
+    }
+    
+    /**
+     * Parse text-based tool calls from AI response
+     * @param response The AI response text
+     * @return ToolCallParseResult with extracted tool calls and cleaned response
+     */
+    private ToolCallParseResult parseTextBasedToolCalls(String response) {
+        List<ParsedToolCall> toolCalls = new ArrayList<>();
+        boolean hasMalformedToolCall = false;
+        
+        // Pattern to match tool calls: TOOL_CALL: name, PARAMETERS: {json}, REASONING: text
+        Pattern toolCallPattern = Pattern.compile(
+            "TOOL_CALL:\\s*([^\\n]+)\\s*\\n" +
+            "PARAMETERS:\\s*([^\\n]+)\\s*\\n" +
+            "REASONING:\\s*([^\\n]+)",
+            Pattern.CASE_INSENSITIVE | Pattern.MULTILINE
+        );
+        
+        Matcher matcher = toolCallPattern.matcher(response);
+        StringBuilder cleanedResponse = new StringBuilder(response);
+        
+        while (matcher.find()) {
+            String toolName = matcher.group(1).trim();
+            String parametersStr = matcher.group(2).trim();
+            String reasoning = matcher.group(3).trim();
+            
+            try {
+                // Parse parameters JSON
+                JsonObject parameters = gson.fromJson(parametersStr, JsonObject.class);
+                
+                // Create parsed tool call
+                ParsedToolCall toolCall = new ParsedToolCall(toolName, parameters, reasoning);
+                toolCalls.add(toolCall);
+                
+                plugin.getLogger().info("Parsed tool call: " + toolName + " with parameters: " + parametersStr);
+                
+                // Remove tool call from response text
+                cleanedResponse = new StringBuilder(cleanedResponse.toString().replace(matcher.group(0), ""));
+                
+            } catch (Exception e) {
+                plugin.getLogger().warning("Failed to parse tool call parameters: " + parametersStr + " - " + e.getMessage());
+                hasMalformedToolCall = true;
+            }
+        }
+        
+        // Check for malformed tool call attempts
+        if (toolCalls.isEmpty() && (response.toLowerCase().contains("tool_call") || 
+                                   response.toLowerCase().contains("parameters") ||
+                                   response.toLowerCase().contains("reasoning"))) {
+            hasMalformedToolCall = true;
+        }
+        
+        return new ToolCallParseResult(toolCalls, cleanedResponse.toString().trim(), hasMalformedToolCall);
+    }
+    
+    /**
+     * Convert ParsedToolCall to MCP format for execution
+     * @param toolCall The parsed tool call
+     * @return JsonObject in MCP tool call format
+     */
+    private JsonObject convertToMCPToolCall(ParsedToolCall toolCall) {
+        JsonObject mcpCall = new JsonObject();
+        mcpCall.addProperty("name", toolCall.getToolName());
+        mcpCall.add("arguments", toolCall.getParameters());
+        return mcpCall;
     }
     
     /**
@@ -606,6 +986,10 @@ public class AIService {
             if (responseBody == null) {
                 // Request failed after retries, return fallback message
                 return "Hello! The server has started, but I'm currently experiencing technical difficulties connecting to my AI services. Basic server functionality is working normally.";
+            } else if ("TOOL_FALLBACK_MODE_REQUIRED".equals(responseBody)) {
+                // Model doesn't support native tool calling, use fallback mode for startup test
+                plugin.getLogger().info("Startup test: Model doesn't support native tools, using fallback mode");
+                return processStartupTestWithFallbackTools();
             }
             
             // Parse response
@@ -665,6 +1049,39 @@ public class AIService {
         
         // Too many tool calls, return a fallback message
         return "Hello! The server has started and I'm ready to assist you. My systems are operational!";
+    }
+    
+    /**
+     * Process startup test using fallback tool calling for models that don't support native tools
+     * @return The AI's response to the startup test
+     */
+    private String processStartupTestWithFallbackTools() throws Exception {
+        plugin.getLogger().info("Processing startup test with fallback tool calling...");
+        
+        // Create request body with tool descriptions in system prompt
+        JsonObject requestBody = buildChatRequestWithToolDescriptions();
+        
+        // Execute request without native tools
+        String responseBody = executeOllamaRequestWithoutTools(requestBody);
+        if (responseBody == null) {
+            return "Hello! The server has started, but I'm experiencing technical difficulties with my AI services.";
+        }
+        
+        // Parse response
+        JsonObject jsonResponse = gson.fromJson(responseBody, JsonObject.class);
+        
+        if (!jsonResponse.has("message")) {
+            plugin.getLogger().warning("Startup test: Invalid Ollama API response format - missing message field");
+            return "Hello! The server has started. I'm online but received an unexpected response format from my AI services.";
+        }
+        
+        JsonObject message = jsonResponse.getAsJsonObject("message");
+        String aiResponse = message.has("content") ? message.get("content").getAsString() : "";
+        
+        // For startup test, we'll just return the AI response without parsing tool calls
+        // The startup test is mainly to verify connectivity and basic functionality
+        plugin.getLogger().info("Startup test with fallback tools completed successfully");
+        return aiResponse;
     }
     
     /**
