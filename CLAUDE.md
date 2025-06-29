@@ -1,8 +1,12 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # OllamaCraft - Claude AI Assistant Guide
 
 ## Project Overview
 
-**OllamaCraft** is a sophisticated Minecraft PaperMC plugin that integrates AI capabilities into Minecraft servers through the Ollama API. It enables players to interact with an intelligent AI assistant that can understand context, maintain conversations, and autonomously execute Minecraft commands through integrated MCP (Model Context Protocol) tools.
+**OllamaCraft** is a sophisticated Minecraft PaperMC plugin that integrates multiple AI providers into Minecraft servers. It features a multi-provider architecture supporting Ollama, Claude (Anthropic), and OpenAI, enabling players to interact with intelligent AI assistants that can understand context, maintain conversations, and autonomously execute Minecraft commands through integrated MCP (Model Context Protocol) tools.
 
 ## Tech Stack & Architecture
 
@@ -12,7 +16,7 @@
 - **Maven**: Build automation and dependency management
 - **OkHttp 4.12.0**: Robust HTTP client for API communication
 - **Gson 2.10.1**: JSON parsing and serialization
-- **Ollama API**: AI model serving and inference
+- **Multiple AI Providers**: Ollama, Claude (Anthropic), OpenAI API integration
 
 ### Key Dependencies
 ```xml
@@ -47,19 +51,32 @@
 src/main/
 ├── java/com/ollamacraft/plugin/
 │   ├── OllamaCraft.java              # Main plugin class
-│   ├── AIService.java                # Core AI communication service
+│   ├── AIService.java                # Legacy AI service (Ollama-only)
+│   ├── AIServiceV2.java              # Modern multi-provider AI service
 │   ├── MCPService.java               # MCP integration service
 │   ├── AICommand.java                # /ai command handler
 │   ├── AIConfigCommand.java          # /aiconfig command handler
 │   ├── ChatListener.java             # Chat event listener
+│   ├── ResponseDetectionService.java # Intelligent chat response detection
 │   ├── MCPBridge.java                # MCP protocol bridge
 │   ├── MCPHttpClient.java            # HTTP client for MCP
 │   ├── MCPStdioHandler.java          # Stdio handler for MCP
 │   ├── MCPToolExecutor.java          # Tool execution engine
 │   ├── MCPToolProvider.java          # Tool discovery and caching
+│   ├── config/
+│   │   └── AIConfiguration.java      # Advanced configuration management
+│   ├── provider/
+│   │   ├── AIProvider.java           # Provider interface
+│   │   ├── AIProviderFactory.java    # Provider factory and caching
+│   │   ├── BaseAIProvider.java       # Common provider functionality
+│   │   ├── OllamaProvider.java       # Ollama integration
+│   │   ├── ClaudeProvider.java       # Anthropic Claude integration
+│   │   └── OpenAIProvider.java       # OpenAI integration
 │   └── model/
 │       ├── ChatMessage.java          # Message data model
-│       └── MessageHistory.java       # Thread-safe message history
+│       ├── MessageHistory.java       # Thread-safe message history
+│       ├── AIResponse.java           # Unified AI response model
+│       └── ToolCall.java             # Universal tool call representation
 └── resources/
     ├── plugin.yml                    # Plugin metadata
     └── config.yml                    # Default configuration
@@ -75,16 +92,46 @@ src/main/
   - Event listener setup
   - Graceful shutdown with MCP bridge cleanup
 
-### 2. AI Service (`AIService.java`)
-- **Purpose**: Central AI communication and tool orchestration
+### 2. AI Architecture (Multi-Provider System)
+#### AIServiceV2.java (Modern Implementation)
+- **Purpose**: Multi-provider AI communication and orchestration
 - **Key Features**:
-  - Ollama API integration with tool calling support
-  - Conversation history management
-  - Tool call processing and response handling
-  - Configuration management and hot-reloading
+  - Support for multiple AI providers (Ollama, Claude, OpenAI)
+  - Intelligent response detection system
+  - Provider-agnostic tool calling with format conversion
+  - Runtime provider switching and configuration hot-reloading
+  - Advanced error handling with provider fallbacks
   - Async processing to prevent server blocking
 
-### 3. MCP Integration System
+#### AIService.java (Legacy Implementation)
+- **Purpose**: Original Ollama-only AI communication
+- **Status**: Maintained for backward compatibility
+- **Key Features**:
+  - Direct Ollama API integration
+  - Basic tool calling support
+  - Conversation history management
+
+### 3. Multi-Provider Architecture
+#### Provider System (provider/ package)
+- **AIProvider Interface**: Unified interface for all AI providers
+  - `chat()`: Basic chat functionality
+  - `chatWithTools()`: Chat with tool calling support
+  - `testConnection()`: Provider health checking
+- **AIProviderFactory**: Factory pattern for provider creation and caching
+- **Provider Implementations**:
+  - `OllamaProvider`: Local Ollama server integration
+  - `ClaudeProvider`: Anthropic Claude API integration
+  - `OpenAIProvider`: OpenAI API integration
+- **Tool Conversion System**: Provider-specific tool format conversion
+- **Configuration Management**: Per-provider settings and validation
+
+#### Intelligent Response Detection
+- **ResponseDetectionService**: AI-powered chat response detection
+- **Multi-tier Detection**: Pattern matching + AI-based contextual analysis
+- **Configurable Detection Provider**: Use different AI provider for detection
+- **Confidence Scoring**: 0.0-1.0 confidence scores for response decisions
+
+### 4. MCP Integration System
 #### MCPService.java
 - MCP bridge lifecycle management
 - Configuration-driven initialization
@@ -111,7 +158,7 @@ src/main/
 - 60-second execution timeout
 - Comprehensive error handling and result formatting
 
-### 4. Command System
+### 5. Command System
 #### AICommand.java
 - Main AI interaction command (`/ai`)
 - Subcommands: `ask`, `clear`
@@ -124,13 +171,13 @@ src/main/
 - MCP server lifecycle control
 - Permission-based access control
 
-### 5. Chat Integration (`ChatListener.java`)
+### 6. Chat Integration (`ChatListener.java`)
 - Chat event monitoring with configurable triggers
 - Default trigger: "Steve, " prefix
 - Async AI response processing
 - Non-intrusive event handling (doesn't cancel original messages)
 
-### 6. Data Models
+### 7. Data Models
 #### ChatMessage.java
 - Simple POJO for role-based messages
 - Automatic timestamp generation
@@ -141,29 +188,68 @@ src/main/
 - Configurable maximum history length (default: 50)
 - Automatic oldest message removal
 
+#### AIResponse.java (Multi-Provider)
+- Unified response model across all AI providers
+- Success/failure status tracking
+- Tool call extraction and processing
+- Error handling and reporting
+
+#### ToolCall.java
+- Universal tool call representation
+- Provider-agnostic tool format
+- MCP protocol integration
+- Parameter validation and conversion
+
 ## Configuration System
 
-### Main Configuration (`config.yml`)
-The plugin uses a comprehensive YAML configuration system with intelligent defaults:
+### Modern Configuration (`config.yml`)
+The plugin uses a comprehensive multi-provider YAML configuration system:
 
 ```yaml
-# Ollama API Settings
-ollama:
-  api-url: "http://localhost:11434/api"
-  model: "llama3"
-  system-prompt: "You are Steve, a helpful assistant in a Minecraft world..."
+# Multi-Provider AI Settings
+ai:
+  provider: "ollama"              # Primary provider: ollama, claude, openai
+  agent-name: "Steve"             # Configurable agent name
+  system-prompt: "You are {agent_name}, a helpful assistant in a Minecraft world..."
   temperature: 0.7
   max-context-length: 50
 
-# Chat Integration Settings
+# Provider-specific configurations
+ollama:
+  model: "llama3.1"
+  base-url: "http://localhost:11434/api"
+  timeout-seconds: 60
+  max-retries: 3
+
+claude:
+  model: "claude-3-5-sonnet-20241022"
+  api-key: "your-claude-api-key"
+  base-url: "https://api.anthropic.com/v1"
+  timeout-seconds: 60
+  max-retries: 3
+
+openai:
+  model: "gpt-4o"
+  api-key: "your-openai-api-key"
+  base-url: "https://api.openai.com/v1"
+  organization: "your-org-id"
+  timeout-seconds: 60
+  max-retries: 3
+
+# Enhanced Chat Integration
 chat:
   monitor-all-chat: false
   trigger-prefix: "Steve, "
   response-format: "[Steve] &a%message%"
+  detection:
+    intelligent-detection: true    # AI-powered response detection
+    fallback-to-prefix: true      # Fallback to prefix matching
+    detection-provider: "ollama"   # Provider for detection AI
+    detection-timeout-seconds: 5
 
 # MCP Integration
 mcp:
-  enabled: true
+  enabled: false                  # Default disabled for basic functionality
   server:
     url: "http://localhost:25575"
     api-key: "your-secure-api-key-here"
@@ -175,6 +261,12 @@ mcp:
     timeout-ms: 30000
     retries: 3
     retry-delay-ms: 1000
+
+# Startup Integration Test
+startup-test:
+  enabled: true
+  delay-seconds: 5
+  broadcast-to-players: true
 ```
 
 ### Plugin Metadata (`plugin.yml`)
@@ -268,6 +360,15 @@ tail -f /path/to/minecraft/logs/latest.log
 # Test AI connection
 /ai hello
 
+# Check current provider status
+/aiconfig provider-status
+
+# Switch AI provider (runtime)
+/aiconfig set-provider claude
+
+# Test provider connection
+/aiconfig test-connection ollama
+
 # Check MCP status
 /aiconfig mcp-status
 
@@ -276,6 +377,9 @@ tail -f /path/to/minecraft/logs/latest.log
 
 # Clear conversation history
 /ai clear
+
+# Toggle intelligent detection
+/aiconfig set chat.detection.intelligent-detection true
 ```
 
 #### Adding New Features
@@ -301,6 +405,29 @@ tail -f /path/to/minecraft/logs/latest.log
 - Configuration-driven behavior with sensible defaults
 - Defensive programming with null checks and validation
 - Clean separation of concerns between components
+
+### Architectural Evolution
+
+#### Migration from Single to Multi-Provider
+The project has evolved from a single-provider (Ollama-only) architecture to a sophisticated multi-provider system:
+
+**Legacy Architecture (AIService):**
+- Direct Ollama API integration
+- Simple tool calling
+- Basic configuration management
+
+**Modern Architecture (AIServiceV2):**
+- Multi-provider support (Ollama, Claude, OpenAI)
+- Intelligent response detection
+- Provider-agnostic tool calling
+- Advanced configuration with validation
+- Runtime provider switching
+
+#### Backward Compatibility
+- Both AIService and AIServiceV2 coexist
+- Gradual migration path for existing installations
+- Configuration supports both legacy and modern formats
+- Feature flags for selective enablement
 
 ## AI Integration Details
 
@@ -334,7 +461,18 @@ startup-test:
 [Steve] Good morning! The server has just started and I'm ready to help! I currently have access to 8 MCP tools including server management, player commands, and world control. Feel free to ask me anything or request assistance with your Minecraft adventures!
 ```
 
-### Conversation Flow
+### Conversation Flow (Multi-Provider)
+1. **Player Message** → Chat listener captures message
+2. **Intelligent Detection** → AI-powered response detection (if enabled)
+3. **Provider Selection** → Choose appropriate AI provider
+4. **History Management** → Message added to conversation context
+5. **Tool Discovery** → Available MCP tools identified and converted
+6. **AI Request** → Sent to selected provider with provider-specific tool format
+7. **Tool Execution** → MCP tools called if requested by AI
+8. **Response Processing** → AI response converted to unified format
+9. **Message Broadcast** → Formatted response sent to players
+
+### Legacy Conversation Flow (AIService)
 1. **Player Message** → Chat listener captures trigger
 2. **History Management** → Message added to context
 3. **AI Request** → Sent to Ollama with available tools
@@ -342,18 +480,41 @@ startup-test:
 5. **Response Generation** → Final AI response with tool results
 6. **Message Broadcast** → Formatted response sent to players
 
-### Tool Calling Architecture
+### Tool Calling Architecture (Multi-Provider)
+- **Tool Discovery**: MCPToolProvider caches available tools (1-minute TTL)
+- **Format Conversion**: Provider-specific tool format conversion
+  - `OllamaToolConverter`: Ollama format conversion
+  - `ClaudeToolConverter`: Anthropic Claude format conversion  
+  - `OpenAIToolConverter`: OpenAI format conversion
+- **Unified Tool Calls**: `ToolCall` model for provider-agnostic execution
+- **MCP Execution**: Async tool calls with 60-second timeout protection
+- **Error Handling**: Comprehensive error reporting with provider fallbacks
+
+### Legacy Tool Calling Architecture
 - **Tool Discovery**: MCPToolProvider caches available tools
 - **Format Conversion**: Ollama ↔ MCP protocol adaptation
 - **Execution**: Async tool calls with timeout protection
 - **Error Handling**: Comprehensive error reporting and recovery
 
-### Supported AI Models
-The plugin supports any Ollama model with tool-calling capabilities:
-- `llama3` (recommended for general use)
+### Supported AI Models and Providers
+
+#### Ollama Models
+Any Ollama model with tool-calling capabilities:
+- `llama3.1` (recommended for general use)
 - `llama3:70b` (higher capability, slower)
 - `codellama` (code-focused tasks)
 - `phi3` (lightweight, faster responses)
+
+#### Claude (Anthropic) Models
+- `claude-3-5-sonnet-20241022` (recommended, excellent tool calling)
+- `claude-3-5-haiku-20241022` (faster, cost-effective)
+- `claude-3-opus-20240229` (highest capability, slower)
+
+#### OpenAI Models
+- `gpt-4o` (recommended, excellent tool calling)
+- `gpt-4o-mini` (faster, cost-effective)
+- `gpt-4-turbo` (high capability)
+- `gpt-3.5-turbo` (basic functionality, limited tool calling)
 
 ## Security Considerations
 
