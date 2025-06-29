@@ -21,7 +21,7 @@ import java.util.logging.Level;
 public class AIService {
     
     private final OllamaCraft plugin;
-    private final OkHttpClient client;
+    private OkHttpClient client;
     private final Gson gson;
     private final MessageHistory messageHistory;
     private final MCPService mcpService;
@@ -32,6 +32,11 @@ public class AIService {
     private String systemPrompt;
     private int maxContextLength;
     private boolean mcpToolsEnabled;
+    
+    // Error handling configuration
+    private int maxRetries;
+    private int baseRetryDelayMs;
+    private int requestTimeoutSeconds;
     
     // MCP tool integration
     private MCPToolProvider toolProvider;
@@ -47,7 +52,7 @@ public class AIService {
         this.messageHistory = new MessageHistory();
         this.mcpService = new MCPService(plugin);
         
-        // Initialize HTTP client
+        // Initialize HTTP client - will be reconfigured in loadConfig()
         this.client = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -71,6 +76,18 @@ public class AIService {
                 "You are Steve, a helpful assistant in a Minecraft world. You have access to Minecraft tools through MCP that allow you to execute commands and interact with the server.");
         this.maxContextLength = config.getInt("ollama.max-context-length", 50);
         this.mcpToolsEnabled = config.getBoolean("mcp.tools.enabled", true);
+        
+        // Load error handling configuration
+        this.maxRetries = config.getInt("ollama.error-handling.max-retries", 3);
+        this.baseRetryDelayMs = config.getInt("ollama.error-handling.base-retry-delay-ms", 1000);
+        this.requestTimeoutSeconds = config.getInt("ollama.error-handling.request-timeout-seconds", 60);
+        
+        // Recreate HTTP client with new timeout configuration
+        this.client = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(this.requestTimeoutSeconds, TimeUnit.SECONDS)
+            .build();
         
         // Update message history max length
         messageHistory.setMaxHistoryLength(maxContextLength);
@@ -139,8 +156,8 @@ public class AIService {
             return processConversationWithTools(player);
             
         } catch (Exception e) {
-            plugin.getLogger().log(Level.SEVERE, "Error sending chat message to AI", e);
-            return "Sorry, I encountered an error processing your request.";
+            plugin.getLogger().log(Level.WARNING, "Error sending chat message to AI: " + e.getMessage(), e);
+            return "I'm sorry, but I'm currently experiencing technical difficulties. Please try again in a moment, or contact an administrator if the problem persists.";
         }
     }
     
@@ -169,23 +186,19 @@ public class AIService {
                 }
             }
             
-            // Build and execute HTTP request
-            Request request = new Request.Builder()
-                .url(apiUrl + "/chat")
-                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
-                .build();
-            
-            Response response = client.newCall(request).execute();
-            if (!response.isSuccessful()) {
-                throw new IOException("Unexpected response code: " + response);
+            // Build and execute HTTP request with retry logic
+            String responseBody = executeOllamaRequestWithRetry(requestBody);
+            if (responseBody == null) {
+                // Request failed after retries, return fallback response
+                return "I'm sorry, but I'm currently experiencing technical difficulties connecting to my AI services. Please try again later.";
             }
             
             // Parse response
-            String responseBody = response.body().string();
             JsonObject jsonResponse = gson.fromJson(responseBody, JsonObject.class);
             
             if (!jsonResponse.has("message")) {
-                throw new IOException("Invalid response format: missing message");
+                plugin.getLogger().warning("Invalid Ollama API response format: missing message field");
+                return "I received an invalid response from my AI services. Please try again.";
             }
             
             JsonObject message = jsonResponse.getAsJsonObject("message");
@@ -239,6 +252,125 @@ public class AIService {
         String fallbackResponse = "I've made several tool calls but let me summarize what I found.";
         messageHistory.addMessage(new ChatMessage("assistant", fallbackResponse));
         return fallbackResponse;
+    }
+    
+    /**
+     * Execute Ollama API request with retry logic and error handling
+     * @param requestBody The JSON request body
+     * @return Response body string if successful, null if failed
+     */
+    private String executeOllamaRequestWithRetry(JsonObject requestBody) {
+        // Use configured values for retry logic
+        
+        for (int attempt = 1; attempt <= this.maxRetries; attempt++) {
+            try {
+                // Build HTTP request
+                Request request = new Request.Builder()
+                    .url(apiUrl + "/chat")
+                    .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                    .build();
+                
+                // Execute request
+                try (Response response = client.newCall(request).execute()) {
+                    if (response.isSuccessful()) {
+                        ResponseBody body = response.body();
+                        if (body != null) {
+                            return body.string();
+                        } else {
+                            plugin.getLogger().warning("Ollama API returned empty response body (attempt " + attempt + "/" + this.maxRetries + ")");
+                        }
+                    } else {
+                        String errorMessage = categorizeOllamaError(response.code(), response.message());
+                        plugin.getLogger().warning("Ollama API error (attempt " + attempt + "/" + this.maxRetries + "): " + errorMessage);
+                        
+                        // Don't retry for certain non-recoverable errors
+                        if (response.code() == 401 || response.code() == 403 || response.code() == 404) {
+                            plugin.getLogger().severe("Non-recoverable Ollama API error: " + errorMessage);
+                            return null;
+                        }
+                    }
+                }
+                
+            } catch (IOException e) {
+                String errorMessage = categorizeOllamaIOException(e);
+                plugin.getLogger().warning("Ollama API connection error (attempt " + attempt + "/" + this.maxRetries + "): " + errorMessage);
+                
+                // Don't retry for certain connection errors
+                if (e.getMessage() != null && e.getMessage().contains("Connection refused")) {
+                    plugin.getLogger().severe("Ollama server appears to be offline: " + errorMessage);
+                    return null;
+                }
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING, "Unexpected error during Ollama API request (attempt " + attempt + "/" + this.maxRetries + ")", e);
+            }
+            
+            // Wait before retrying (exponential backoff)
+            if (attempt < this.maxRetries) {
+                try {
+                    int delay = this.baseRetryDelayMs * (int) Math.pow(2, attempt - 1);
+                    Thread.sleep(delay);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    plugin.getLogger().warning("Retry delay interrupted");
+                    break;
+                }
+            }
+        }
+        
+        // All retries failed
+        plugin.getLogger().severe("Ollama API request failed after " + this.maxRetries + " attempts");
+        return null;
+    }
+    
+    /**
+     * Categorize Ollama API HTTP errors into user-friendly messages
+     * @param statusCode HTTP status code
+     * @param statusMessage HTTP status message
+     * @return User-friendly error message
+     */
+    private String categorizeOllamaError(int statusCode, String statusMessage) {
+        switch (statusCode) {
+            case 400:
+                return "Bad request to Ollama API. Check model name and request format.";
+            case 401:
+                return "Unauthorized access to Ollama API. Check authentication.";
+            case 404:
+                return "Ollama API endpoint not found. Check the API URL configuration.";
+            case 500:
+                return "Ollama server internal error. The AI model may be unavailable or overloaded.";
+            case 502:
+                return "Ollama server gateway error. The service may be temporarily unavailable.";
+            case 503:
+                return "Ollama server unavailable. The service may be starting up or overloaded.";
+            case 504:
+                return "Ollama server timeout. The request took too long to process.";
+            default:
+                return "Ollama API error (" + statusCode + "): " + statusMessage;
+        }
+    }
+    
+    /**
+     * Categorize Ollama IO exceptions into user-friendly messages
+     * @param exception The IOException
+     * @return User-friendly error message
+     */
+    private String categorizeOllamaIOException(IOException exception) {
+        String message = exception.getMessage();
+        if (message == null) {
+            return "Unknown connection error to Ollama API";
+        }
+        
+        if (message.contains("Connection refused")) {
+            return "Cannot connect to Ollama server. Is Ollama running at " + apiUrl + "?";
+        } else if (message.contains("timeout")) {
+            return "Connection to Ollama server timed out. The server may be overloaded.";
+        } else if (message.contains("Unknown host")) {
+            return "Cannot resolve Ollama server hostname. Check the API URL configuration.";
+        } else if (message.contains("No route to host")) {
+            return "Cannot reach Ollama server. Check network connectivity.";
+        } else {
+            return "Connection error: " + message;
+        }
     }
     
     /**
@@ -386,7 +518,14 @@ public class AIService {
                 }
                 
             } catch (Exception e) {
-                plugin.getLogger().log(Level.WARNING, "AI startup test failed", e);
+                // Log the error but continue with graceful fallback
+                plugin.getLogger().log(Level.WARNING, "AI startup test failed - plugin will continue with reduced functionality", e);
+                
+                // Create a fallback startup message
+                String fallbackMessage = "Server has started! OllamaCraft plugin is active but AI services are currently unavailable. " +
+                                       "Please check your Ollama configuration and try again later.";
+                String formattedFallback = formatStartupResponse(fallbackMessage);
+                broadcastStartupMessage(formattedFallback);
             }
         });
     }
@@ -416,23 +555,19 @@ public class AIService {
                 }
             }
             
-            // Build and execute HTTP request
-            Request request = new Request.Builder()
-                .url(apiUrl + "/chat")
-                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
-                .build();
-            
-            Response response = client.newCall(request).execute();
-            if (!response.isSuccessful()) {
-                throw new IOException("Unexpected response code: " + response);
+            // Build and execute HTTP request with retry logic
+            String responseBody = executeOllamaRequestWithRetry(requestBody);
+            if (responseBody == null) {
+                // Request failed after retries, return fallback message
+                return "Hello! The server has started, but I'm currently experiencing technical difficulties connecting to my AI services. Basic server functionality is working normally.";
             }
             
             // Parse response
-            String responseBody = response.body().string();
             JsonObject jsonResponse = gson.fromJson(responseBody, JsonObject.class);
             
             if (!jsonResponse.has("message")) {
-                throw new IOException("Invalid response format: missing message");
+                plugin.getLogger().warning("Startup test: Invalid Ollama API response format - missing message field");
+                return "Hello! The server has started. I'm online but received an unexpected response format from my AI services.";
             }
             
             JsonObject message = jsonResponse.getAsJsonObject("message");

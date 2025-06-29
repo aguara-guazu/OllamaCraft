@@ -12,6 +12,14 @@ ollama:
   temperature: 0.7
   # Maximum context length to preserve (number of most recent messages)
   max-context-length: 50
+  # Error handling configuration
+  error-handling:
+    # Maximum number of retry attempts for failed API requests
+    max-retries: 3
+    # Base delay between retries in milliseconds (uses exponential backoff)
+    base-retry-delay-ms: 1000
+    # Request timeout in seconds for Ollama API calls
+    request-timeout-seconds: 60
 
 # Chat Settings
 chat:
