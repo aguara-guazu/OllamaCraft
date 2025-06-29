@@ -216,36 +216,180 @@ public class AIConfiguration {
     public String validateConfiguration() {
         // Check if primary provider is supported
         if (!isProviderSupported(primaryProvider)) {
-            return "Unsupported primary provider: " + primaryProvider;
+            return "Unsupported primary provider: '" + primaryProvider + "'. Supported providers: ollama, claude, openai";
         }
         
         // Validate provider-specific configuration
         Map<String, Object> providerConfig = getProviderConfiguration(primaryProvider);
         if (providerConfig == null || providerConfig.isEmpty()) {
-            return "No configuration found for provider: " + primaryProvider;
+            return "No configuration found for provider: " + primaryProvider + ". Please add provider-specific settings to config.yml";
         }
         
-        // Check required fields for non-Ollama providers
-        if ("claude".equals(primaryProvider)) {
-            String apiKey = (String) providerConfig.get("api-key");
-            if (apiKey == null || apiKey.trim().isEmpty() || apiKey.contains("your-")) {
-                return "Claude API key is required and must be configured";
+        // Validate primary provider configuration
+        String providerValidation = validateProviderConfig(primaryProvider, providerConfig);
+        if (providerValidation != null) {
+            return providerValidation;
+        }
+        
+        // Validate detection provider if intelligent detection is enabled
+        if (intelligentDetection) {
+            if (!isProviderSupported(detectionProvider)) {
+                return "Unsupported detection provider: '" + detectionProvider + "'. Must be one of: ollama, claude, openai";
+            }
+            
+            // If detection provider is different from primary, validate its config too
+            if (!detectionProvider.equals(primaryProvider)) {
+                Map<String, Object> detectionConfig = getProviderConfiguration(detectionProvider);
+                if (detectionConfig == null || detectionConfig.isEmpty()) {
+                    return "Detection provider '" + detectionProvider + "' requires configuration but none found";
+                }
+                
+                String detectionValidation = validateProviderConfig(detectionProvider, detectionConfig);
+                if (detectionValidation != null) {
+                    return "Detection provider error: " + detectionValidation;
+                }
+            }
+            
+            // Validate detection settings
+            if (confidenceThreshold < 0.0 || confidenceThreshold > 1.0) {
+                return "Confidence threshold must be between 0.0 and 1.0, got: " + confidenceThreshold;
+            }
+            
+            if (detectionTimeoutSeconds < 1 || detectionTimeoutSeconds > 30) {
+                return "Detection timeout must be between 1 and 30 seconds, got: " + detectionTimeoutSeconds;
             }
         }
         
-        if ("openai".equals(primaryProvider)) {
-            String apiKey = (String) providerConfig.get("api-key");
-            if (apiKey == null || apiKey.trim().isEmpty() || apiKey.contains("your-")) {
-                return "OpenAI API key is required and must be configured";
-            }
+        // Validate general settings
+        if (temperature < 0.0 || temperature > 1.0) {
+            return "Temperature must be between 0.0 and 1.0, got: " + temperature;
         }
         
-        // Validate detection provider
-        if (!isProviderSupported(detectionProvider)) {
-            return "Unsupported detection provider: " + detectionProvider;
+        if (maxContextLength < 1 || maxContextLength > 1000) {
+            return "Max context length must be between 1 and 1000, got: " + maxContextLength;
+        }
+        
+        if (agentName == null || agentName.trim().isEmpty()) {
+            return "Agent name cannot be empty";
         }
         
         return null; // Configuration is valid
+    }
+    
+    /**
+     * Validate provider-specific configuration
+     */
+    private String validateProviderConfig(String provider, Map<String, Object> config) {
+        switch (provider) {
+            case "claude":
+                return validateClaudeConfig(config);
+            case "openai":
+                return validateOpenAIConfig(config);
+            case "ollama":
+                return validateOllamaConfig(config);
+            default:
+                return "Unknown provider: " + provider;
+        }
+    }
+    
+    /**
+     * Validate Claude provider configuration
+     */
+    private String validateClaudeConfig(Map<String, Object> config) {
+        String apiKey = (String) config.get("api-key");
+        if (apiKey == null || apiKey.trim().isEmpty() || apiKey.contains("your-")) {
+            return "Claude API key is required. Get one from https://console.anthropic.com/ and set 'claude.api-key' in config.yml";
+        }
+        
+        String model = (String) config.get("model");
+        if (model == null || model.trim().isEmpty()) {
+            return "Claude model is required. Set 'claude.model' (e.g., 'claude-3-5-sonnet-20241022')";
+        }
+        
+        if (!isValidClaudeModel(model)) {
+            return "Invalid Claude model: '" + model + "'. Use a valid Claude model like 'claude-3-5-sonnet-20241022'";
+        }
+        
+        String baseUrl = (String) config.get("base-url");
+        if (baseUrl != null && !baseUrl.startsWith("https://")) {
+            return "Claude base URL must use HTTPS";
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Validate OpenAI provider configuration
+     */
+    private String validateOpenAIConfig(Map<String, Object> config) {
+        String apiKey = (String) config.get("api-key");
+        if (apiKey == null || apiKey.trim().isEmpty() || apiKey.contains("your-")) {
+            return "OpenAI API key is required. Get one from https://platform.openai.com/ and set 'openai.api-key' in config.yml";
+        }
+        
+        String model = (String) config.get("model");
+        if (model == null || model.trim().isEmpty()) {
+            return "OpenAI model is required. Set 'openai.model' (e.g., 'gpt-4o')";
+        }
+        
+        if (!isValidOpenAIModel(model)) {
+            return "Invalid OpenAI model: '" + model + "'. Use a valid model like 'gpt-4o' or 'gpt-3.5-turbo'";
+        }
+        
+        String baseUrl = (String) config.get("base-url");
+        if (baseUrl != null && !baseUrl.startsWith("https://")) {
+            return "OpenAI base URL must use HTTPS";
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Validate Ollama provider configuration
+     */
+    private String validateOllamaConfig(Map<String, Object> config) {
+        String baseUrl = (String) config.get("base-url");
+        if (baseUrl == null || baseUrl.trim().isEmpty()) {
+            return "Ollama base URL is required. Set 'ollama.base-url' (e.g., 'http://localhost:11434/api')";
+        }
+        
+        if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) {
+            return "Ollama base URL must start with http:// or https://";
+        }
+        
+        String model = (String) config.get("model");
+        if (model == null || model.trim().isEmpty()) {
+            return "Ollama model is required. Set 'ollama.model' (e.g., 'llama3.1')";
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Check if Claude model is valid
+     */
+    private boolean isValidClaudeModel(String model) {
+        return model.startsWith("claude-3-") || model.startsWith("claude-4-") || 
+               model.equals("claude-3-opus-20240229") || 
+               model.equals("claude-3-sonnet-20240229") ||
+               model.equals("claude-3-haiku-20240307") ||
+               model.equals("claude-3-5-sonnet-20241022") ||
+               model.equals("claude-3-5-haiku-20241022") ||
+               model.equals("claude-sonnet-4-20250514") ||
+               model.equals("claude-opus-4-20250514");
+    }
+    
+    /**
+     * Check if OpenAI model is valid
+     */
+    private boolean isValidOpenAIModel(String model) {
+        return model.startsWith("gpt-") || 
+               model.equals("gpt-4o") || 
+               model.equals("gpt-4o-mini") ||
+               model.equals("gpt-4-turbo") ||
+               model.equals("gpt-4") ||
+               model.equals("gpt-3.5-turbo") ||
+               model.equals("gpt-3.5-turbo-16k");
     }
     
     /**
@@ -257,10 +401,12 @@ public class AIConfiguration {
     
     // Getters
     public String getPrimaryProvider() { return primaryProvider; }
+    public String getProvider() { return primaryProvider; } // Alias for compatibility
     public String getAgentName() { return agentName; }
     public String getSystemPrompt() { return systemPrompt; }
     public double getTemperature() { return temperature; }
     public int getMaxContextLength() { return maxContextLength; }
+    public FileConfiguration getConfig() { return config; } // For direct config access
     
     public Map<String, Object> getProviderConfiguration(String provider) {
         return providerConfigs.get(provider);

@@ -84,7 +84,11 @@ public class AICommand implements CommandExecutor, TabCompleter {
      * @param player The player who sent the command
      */
     private void handleClearCommand(Player player) {
-        plugin.getAIService().clearHistory();
+        if (plugin.isUsingModernArchitecture()) {
+            plugin.getAIServiceV2().clearHistory();
+        } else {
+            plugin.getAIService().clearHistory();
+        }
         player.sendMessage(Component.text("AI conversation history has been cleared.")
                 .color(NamedTextColor.GREEN));
     }
@@ -101,7 +105,12 @@ public class AICommand implements CommandExecutor, TabCompleter {
         // Process the query asynchronously
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             try {
-                String response = plugin.getAIService().sendChatMessage(player, query);
+                String response;
+                if (plugin.isUsingModernArchitecture()) {
+                    response = plugin.getAIServiceV2().sendChatMessage(player, query);
+                } else {
+                    response = plugin.getAIService().sendChatMessage(player, query);
+                }
 
                 // Send response on the main thread
                 plugin.getServer().getScheduler().runTask(plugin, () -> {

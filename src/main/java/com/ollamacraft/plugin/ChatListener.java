@@ -140,8 +140,13 @@ public class ChatListener implements Listener {
                     detectionService.addToContext(player, message, false);
                 }
                 
-                // Get response from AI
-                String aiResponse = plugin.getAIService().sendChatMessage(player, queryToProcess);
+                // Get response from AI using the appropriate service
+                String aiResponse;
+                if (plugin.isUsingModernArchitecture()) {
+                    aiResponse = plugin.getAIServiceV2().sendChatMessage(player, queryToProcess);
+                } else {
+                    aiResponse = plugin.getAIService().sendChatMessage(player, queryToProcess);
+                }
                 
                 // Add AI response to context
                 if (detectionService != null) {

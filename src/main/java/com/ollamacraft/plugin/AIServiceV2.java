@@ -8,6 +8,7 @@ import com.ollamacraft.plugin.provider.*;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -386,6 +387,64 @@ public class AIServiceV2 {
     }
     
     /**
+     * Send a chat message and get AI response
+     * @param player The player sending the message
+     * @param content The message content
+     * @return AI response
+     */
+    public String sendChatMessage(Player player, String content) {
+        try {
+            String playerName = player.getName();
+            
+            // Get or create player-specific message history
+            MessageHistory playerHistory = playerMessageHistories.computeIfAbsent(playerName, 
+                k -> {
+                    MessageHistory history = new MessageHistory();
+                    history.setMaxHistoryLength(configuration.getMaxContextLength());
+                    return history;
+                });
+            
+            // Add user message to history
+            playerHistory.addMessage(new ChatMessage("user", playerName + ": " + content));
+            
+            // Process with primary provider
+            if (primaryProvider == null) {
+                return "I'm sorry, but I'm currently experiencing technical difficulties with my AI services. Please try again later.";
+            }
+            
+            // Prepare messages for AI
+            List<ChatMessage> messages = new ArrayList<>(playerHistory.getMessages());
+            
+            // Get AI response
+            CompletableFuture<AIResponse> future;
+            if (toolsEnabled && availableTools != null && !availableTools.isEmpty()) {
+                future = primaryProvider.chatWithTools(messages, configuration.getSystemPrompt(), availableTools);
+            } else {
+                future = primaryProvider.chat(messages, configuration.getSystemPrompt());
+            }
+            
+            // Wait for response with timeout
+            AIResponse response = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            
+            if (response.isSuccessful() && response.hasContent()) {
+                String aiResponse = response.getContent();
+                
+                // Add AI response to history
+                playerHistory.addMessage(new ChatMessage("assistant", aiResponse));
+                
+                return aiResponse;
+            } else {
+                logger.warning("AI response failed: " + response.getErrorMessage());
+                return "I'm sorry, but I couldn't process your request right now. Please try again.";
+            }
+            
+        } catch (Exception e) {
+            logger.warning("Error processing chat message: " + e.getMessage());
+            return "I'm experiencing technical difficulties. Please try again later.";
+        }
+    }
+    
+    /**
      * Clear conversation history
      */
     public void clearHistory(String playerName) {
@@ -400,6 +459,13 @@ public class AIServiceV2 {
                 logger.info("Cleared conversation history for player: " + playerName);
             }
         }
+    }
+    
+    /**
+     * Clear all conversation history (legacy compatibility)
+     */
+    public void clearHistory() {
+        clearHistory(null);
     }
     
     /**
@@ -564,6 +630,148 @@ public class AIServiceV2 {
         playerMessageHistories.clear();
         
         logger.info("AI service shutdown complete");
+    }
+    
+    /**
+     * Perform startup integration test with configured provider
+     */
+    public void performStartupTest() {
+        logger.info("Starting AI startup integration test...");
+        logger.info("Testing configured provider: " + configuration.getProvider() + 
+                   " with intelligent detection and multi-provider architecture");
+        
+        // Run async to avoid blocking server startup
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                // Build provider-agnostic startup test message
+                StringBuilder testPrompt = new StringBuilder();
+                testPrompt.append("Good morning! The server has just started and I'm ").append(configuration.getAgentName()).append(". ");
+                testPrompt.append("Please introduce yourself to the players and report on your current capabilities. ");
+                
+                // Check MCP tools availability
+                if (toolsEnabled && availableTools != null && !availableTools.isEmpty()) {
+                    testPrompt.append("I have access to ").append(availableTools.size()).append(" MCP tools for server management. ");
+                } else {
+                    testPrompt.append("Note that MCP tools are not currently available, so I'm operating in basic chat mode only. ");
+                }
+                
+                // Add provider information
+                testPrompt.append("I'm powered by ").append(configuration.getProvider()).append(" (")
+                         .append(getCurrentProviderModel()).append("). ");
+                testPrompt.append("Keep your response friendly, brief, and informative for the players. ");
+                testPrompt.append("Maximum 2 sentences please.");
+                
+                // Process startup test with primary provider
+                String response = processProviderStartupTest(testPrompt.toString());
+                
+                if (response != null && !response.isEmpty()) {
+                    // Format and broadcast the response
+                    String formattedResponse = formatStartupResponse(response);
+                    broadcastStartupMessage(formattedResponse);
+                    
+                    logger.info("✓ AI startup integration test completed successfully");
+                    logger.info("AI services are operational with " + configuration.getProvider() + " provider");
+                } else {
+                    logger.warning("✗ AI startup test failed - no response received from " + configuration.getProvider());
+                    broadcastFallbackStartupMessage();
+                }
+                
+            } catch (Exception e) {
+                logger.warning("✗ AI startup integration test failed: " + e.getMessage());
+                logger.warning("This usually indicates provider configuration issues");
+                logger.warning("Check: 1) Provider is accessible, 2) API keys are valid, 3) Model is available");
+                
+                broadcastFallbackStartupMessage();
+            }
+        });
+    }
+    
+    /**
+     * Process startup test with the configured provider
+     */
+    private String processProviderStartupTest(String testPrompt) {
+        try {
+            if (primaryProvider == null) {
+                logger.warning("Primary provider not available for startup test");
+                return null;
+            }
+            
+            // Create startup test message
+            List<ChatMessage> messages = new ArrayList<>();
+            messages.add(new ChatMessage("user", testPrompt));
+            
+            // Test provider connection and get response
+            CompletableFuture<AIResponse> future;
+            if (toolsEnabled && availableTools != null && !availableTools.isEmpty()) {
+                logger.info("Testing with tools enabled (" + availableTools.size() + " tools available)");
+                future = primaryProvider.chatWithTools(messages, configuration.getSystemPrompt(), availableTools);
+            } else {
+                logger.info("Testing basic chat without tools");
+                future = primaryProvider.chat(messages, configuration.getSystemPrompt());
+            }
+            
+            // Wait for response with timeout
+            AIResponse response = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            
+            if (response.isSuccessful() && response.hasContent()) {
+                logger.info("Startup test successful with " + configuration.getProvider());
+                return response.getContent();
+            } else {
+                logger.warning("Startup test failed: " + response.getErrorMessage());
+                return null;
+            }
+            
+        } catch (Exception e) {
+            logger.warning("Provider startup test failed: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Get current provider model name
+     */
+    private String getCurrentProviderModel() {
+        try {
+            Map<String, Object> providerConfig = configuration.getProviderConfiguration(configuration.getProvider());
+            return (String) providerConfig.getOrDefault("model", "unknown");
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+    
+    /**
+     * Format startup response for display
+     */
+    private String formatStartupResponse(String response) {
+        String agentName = configuration.getAgentName();
+        return "[" + agentName + "] " + response;
+    }
+    
+    /**
+     * Broadcast startup message to all players
+     */
+    private void broadcastStartupMessage(String formattedResponse) {
+        // Check if broadcasting is enabled
+        boolean broadcastEnabled = plugin.getConfig().getBoolean("startup-test.broadcast-to-players", true);
+        
+        if (broadcastEnabled) {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                plugin.getServer().broadcast(net.kyori.adventure.text.Component.text(formattedResponse)
+                        .color(net.kyori.adventure.text.format.NamedTextColor.GREEN));
+            });
+        }
+        
+        logger.info("AI Startup Message: " + formattedResponse);
+    }
+    
+    /**
+     * Broadcast fallback message when startup test fails
+     */
+    private void broadcastFallbackStartupMessage() {
+        String agentName = configuration.getAgentName();
+        String fallbackMessage = "[" + agentName + "] Hello! The server has started, but I'm currently experiencing technical difficulties connecting to my AI services. Basic server functionality is working normally.";
+        
+        broadcastStartupMessage(fallbackMessage);
     }
     
     // Getters for external access

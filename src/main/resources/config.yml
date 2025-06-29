@@ -3,7 +3,7 @@
 # Main AI Settings
 ai:
   # Primary AI provider (ollama, claude, openai)
-  provider: "ollama"
+  provider: "claude"
   # Configurable agent name
   agent-name: "Steve"
   # System prompt with agent name placeholder
@@ -12,6 +12,9 @@ ai:
   temperature: 0.7
   # Maximum context length to preserve (number of most recent messages)
   max-context-length: 50
+  # Use modern multi-provider architecture (recommended)
+  # Set to false to use legacy Ollama-only service for backward compatibility
+  use-modern-architecture: true
 
 # Provider-specific configurations
 ollama:
@@ -62,9 +65,9 @@ chat:
   # Intelligent Detection System
   detection:
     # Enable intelligent response detection (recommended for advanced users)
-    intelligent-detection: false
+    intelligent-detection: true
     # AI provider to use for detection analysis (should be fast)
-    detection-provider: "ollama"
+    detection-provider: "claude"
     # Timeout for detection analysis in seconds
     detection-timeout-seconds: 3
     # Fallback to prefix detection if intelligent detection fails
