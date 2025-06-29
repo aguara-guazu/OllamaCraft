@@ -260,10 +260,16 @@ public class AIService {
      * @return Response body string if successful, null if failed
      */
     private String executeOllamaRequestWithRetry(JsonObject requestBody) {
-        // Use configured values for retry logic
+        plugin.getLogger().info("Starting Ollama API request to " + apiUrl + "/chat (model: " + model + ")");
+        
+        Exception lastException = null;
+        int lastStatusCode = 0;
+        String lastErrorMessage = "";
         
         for (int attempt = 1; attempt <= this.maxRetries; attempt++) {
             try {
+                plugin.getLogger().info("Ollama API request attempt " + attempt + "/" + this.maxRetries);
+                
                 // Build HTTP request
                 Request request = new Request.Builder()
                     .url(apiUrl + "/chat")
@@ -275,50 +281,84 @@ public class AIService {
                     if (response.isSuccessful()) {
                         ResponseBody body = response.body();
                         if (body != null) {
+                            plugin.getLogger().info("Ollama API request successful on attempt " + attempt);
                             return body.string();
                         } else {
+                            lastErrorMessage = "Empty response body";
                             plugin.getLogger().warning("Ollama API returned empty response body (attempt " + attempt + "/" + this.maxRetries + ")");
                         }
                     } else {
-                        String errorMessage = categorizeOllamaError(response.code(), response.message());
-                        plugin.getLogger().warning("Ollama API error (attempt " + attempt + "/" + this.maxRetries + "): " + errorMessage);
+                        lastStatusCode = response.code();
+                        String statusMessage = response.message();
+                        lastErrorMessage = categorizeOllamaError(response.code(), statusMessage);
                         
-                        // Don't retry for certain non-recoverable errors
+                        // Log detailed error information
+                        plugin.getLogger().warning("Ollama API HTTP " + response.code() + " error (attempt " + attempt + "/" + this.maxRetries + "): " + statusMessage);
+                        
+                        // Try to get response body for additional error details
+                        try {
+                            ResponseBody errorBody = response.body();
+                            if (errorBody != null) {
+                                String errorContent = errorBody.string();
+                                if (!errorContent.isEmpty()) {
+                                    plugin.getLogger().warning("Ollama API error response body: " + errorContent);
+                                }
+                            }
+                        } catch (Exception bodyException) {
+                            plugin.getLogger().warning("Could not read error response body: " + bodyException.getMessage());
+                        }
+                        
+                        // Check for non-recoverable errors but don't return immediately
                         if (response.code() == 401 || response.code() == 403 || response.code() == 404) {
-                            plugin.getLogger().severe("Non-recoverable Ollama API error: " + errorMessage);
+                            plugin.getLogger().severe("Non-recoverable Ollama API error (HTTP " + response.code() + "): " + lastErrorMessage);
+                            plugin.getLogger().severe("Stopping retry attempts due to non-recoverable error");
                             return null;
                         }
                     }
                 }
                 
             } catch (IOException e) {
-                String errorMessage = categorizeOllamaIOException(e);
-                plugin.getLogger().warning("Ollama API connection error (attempt " + attempt + "/" + this.maxRetries + "): " + errorMessage);
+                lastException = e;
+                lastErrorMessage = categorizeOllamaIOException(e);
+                plugin.getLogger().warning("Ollama API connection error (attempt " + attempt + "/" + this.maxRetries + "): " + e.getMessage());
                 
-                // Don't retry for certain connection errors
+                // Check for non-recoverable connection errors but don't return immediately
                 if (e.getMessage() != null && e.getMessage().contains("Connection refused")) {
-                    plugin.getLogger().severe("Ollama server appears to be offline: " + errorMessage);
+                    plugin.getLogger().severe("Ollama server appears to be offline: " + lastErrorMessage);
+                    plugin.getLogger().severe("Stopping retry attempts - Ollama server is not responding");
                     return null;
                 }
             } catch (Exception e) {
+                lastException = e;
+                lastErrorMessage = "Unexpected error: " + e.getMessage();
                 plugin.getLogger().log(Level.WARNING, "Unexpected error during Ollama API request (attempt " + attempt + "/" + this.maxRetries + ")", e);
             }
             
-            // Wait before retrying (exponential backoff)
+            // Wait before retrying (exponential backoff) - but not on the last attempt
             if (attempt < this.maxRetries) {
+                int delay = this.baseRetryDelayMs * (int) Math.pow(2, attempt - 1);
+                plugin.getLogger().info("Retrying Ollama request in " + delay + "ms... (attempt " + (attempt + 1) + "/" + this.maxRetries + ")");
+                
                 try {
-                    int delay = this.baseRetryDelayMs * (int) Math.pow(2, attempt - 1);
                     Thread.sleep(delay);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
-                    plugin.getLogger().warning("Retry delay interrupted");
+                    plugin.getLogger().warning("Retry delay interrupted - stopping retry attempts");
                     break;
                 }
             }
         }
         
-        // All retries failed
+        // All retries failed - log detailed failure information
         plugin.getLogger().severe("Ollama API request failed after " + this.maxRetries + " attempts");
+        if (lastStatusCode > 0) {
+            plugin.getLogger().severe("Final error: HTTP " + lastStatusCode + " - " + lastErrorMessage);
+        } else if (lastException != null) {
+            plugin.getLogger().severe("Final error: " + lastErrorMessage);
+            plugin.getLogger().log(Level.SEVERE, "Final exception details:", lastException);
+        } else {
+            plugin.getLogger().severe("Final error: " + lastErrorMessage);
+        }
         return null;
     }
     
@@ -482,7 +522,8 @@ public class AIService {
      * This method sends a greeting message and reports available tools
      */
     public void performStartupTest() {
-        plugin.getLogger().info("Starting AI integration test...");
+        plugin.getLogger().info("Starting AI startup integration test...");
+        plugin.getLogger().info("This test verifies AI and MCP functionality - checking Ollama connection and available tools");
         
         // Run async to avoid blocking server startup
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -512,14 +553,18 @@ public class AIService {
                     String formattedResponse = formatStartupResponse(response);
                     broadcastStartupMessage(formattedResponse);
                     
-                    plugin.getLogger().info("AI startup test completed successfully");
+                    plugin.getLogger().info("✓ AI startup integration test completed successfully");
+                    plugin.getLogger().info("AI services are operational and ready to handle player requests");
                 } else {
-                    plugin.getLogger().warning("AI startup test failed - no response received");
+                    plugin.getLogger().warning("✗ AI startup test failed - no response received from Ollama API");
+                    plugin.getLogger().warning("Players may experience issues with AI functionality");
                 }
                 
             } catch (Exception e) {
                 // Log the error but continue with graceful fallback
-                plugin.getLogger().log(Level.WARNING, "AI startup test failed - plugin will continue with reduced functionality", e);
+                plugin.getLogger().log(Level.WARNING, "✗ AI startup integration test failed - plugin will continue with reduced functionality", e);
+                plugin.getLogger().warning("This usually indicates Ollama server issues or configuration problems");
+                plugin.getLogger().warning("Check: 1) Ollama is running, 2) Model is available, 3) API URL is correct");
                 
                 // Create a fallback startup message
                 String fallbackMessage = "Server has started! OllamaCraft plugin is active but AI services are currently unavailable. " +
@@ -535,6 +580,7 @@ public class AIService {
      * @return The AI's response to the startup test
      */
     private String processStartupTest() throws Exception {
+        plugin.getLogger().info("Processing startup test conversation with AI...");
         int maxToolCalls = 3; // Limit tool calls during startup test
         int toolCallCount = 0;
         
