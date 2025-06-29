@@ -43,6 +43,8 @@ public class AIService {
     
     // Fallback tool calling for models without native tool support
     private boolean useToolFallbackMode = false;
+    private int consecutiveToolFailures = 0;
+    private boolean toolCallsDisabled = false;
     
     // MCP tool integration
     private MCPToolProvider toolProvider;
@@ -272,6 +274,12 @@ public class AIService {
     private String processConversationWithFallbackTools(Player player) throws Exception {
         plugin.getLogger().info("Using fallback tool calling mode for model that doesn't support native tools");
         
+        // Check if tools are disabled due to previous failures
+        if (toolCallsDisabled) {
+            plugin.getLogger().info("Tool calling is disabled due to previous failures, using regular chat mode");
+            return processConversationWithoutTools(player);
+        }
+        
         int maxToolCalls = 5; // Prevent infinite loops
         int toolCallCount = 0;
         int parseRetries = 0;
@@ -322,10 +330,21 @@ public class AIService {
                         messageHistory.addMessage(new ChatMessage("tool", toolResultContent));
                         
                         plugin.getLogger().info("Fallback tool executed: " + toolCall.getToolName() + " -> " + toolResultContent);
+                        consecutiveToolFailures = 0; // Reset failure counter on success
+                        
                     } catch (Exception e) {
                         plugin.getLogger().warning("Failed to execute fallback tool " + toolCall.getToolName() + ": " + e.getMessage());
                         messageHistory.addMessage(new ChatMessage("tool", "Error: Tool execution failed - " + e.getMessage()));
                         allToolsSuccessful = false;
+                        consecutiveToolFailures++;
+                        
+                        // Circuit breaker: disable tools after too many failures
+                        if (consecutiveToolFailures >= 3) {
+                            plugin.getLogger().warning("Too many consecutive tool failures (" + consecutiveToolFailures + "), disabling tool calls for this conversation");
+                            toolCallsDisabled = true;
+                            messageHistory.addMessage(new ChatMessage("assistant", "I'm having trouble with my tools right now. Let me help you directly instead."));
+                            return "I'm experiencing some technical difficulties with my tool system. Let me help you directly with your request instead.";
+                        }
                     }
                 }
                 
@@ -354,6 +373,11 @@ public class AIService {
             }
             
             // No tool calls detected, this is the final response
+            if (aiResponse == null || aiResponse.trim().isEmpty()) {
+                plugin.getLogger().warning("AI returned empty response in fallback mode, providing default message");
+                aiResponse = "I'm sorry, I'm having trouble generating a response right now. Could you please try rephrasing your question?";
+            }
+            
             messageHistory.addMessage(new ChatMessage("assistant", aiResponse));
             return aiResponse;
         }
@@ -362,6 +386,44 @@ public class AIService {
         String fallbackResponse = "I've attempted several tool operations but let me provide you with a summary of what I found.";
         messageHistory.addMessage(new ChatMessage("assistant", fallbackResponse));
         return fallbackResponse;
+    }
+    
+    /**
+     * Process conversation without any tool calling (regular chat mode)
+     * @param player The player for context
+     * @return The AI response
+     */
+    private String processConversationWithoutTools(Player player) throws Exception {
+        plugin.getLogger().info("Processing conversation in regular chat mode (no tools)");
+        
+        // Create simple request body without tools
+        JsonObject requestBody = buildChatRequest();
+        
+        // Execute request without tools
+        String responseBody = executeOllamaRequestWithoutTools(requestBody);
+        if (responseBody == null) {
+            return "I'm sorry, but I'm currently experiencing technical difficulties connecting to my AI services. Please try again later.";
+        }
+        
+        // Parse response
+        JsonObject jsonResponse = gson.fromJson(responseBody, JsonObject.class);
+        
+        if (!jsonResponse.has("message")) {
+            plugin.getLogger().warning("Invalid Ollama API response format: missing message field");
+            return "I received an invalid response from my AI services. Please try again.";
+        }
+        
+        JsonObject message = jsonResponse.getAsJsonObject("message");
+        String aiResponse = message.has("content") ? message.get("content").getAsString() : "";
+        
+        // Check for empty response
+        if (aiResponse == null || aiResponse.trim().isEmpty()) {
+            plugin.getLogger().warning("AI returned empty response in regular chat mode, providing default message");
+            aiResponse = "I'm sorry, I'm having trouble generating a response right now. Could you please try rephrasing your question?";
+        }
+        
+        messageHistory.addMessage(new ChatMessage("assistant", aiResponse));
+        return aiResponse;
     }
     
     /**
@@ -784,12 +846,17 @@ public class AIService {
     /**
      * Convert ParsedToolCall to MCP format for execution
      * @param toolCall The parsed tool call
-     * @return JsonObject in MCP tool call format
+     * @return JsonObject in MCP tool call format expected by MCPToolExecutor
      */
     private JsonObject convertToMCPToolCall(ParsedToolCall toolCall) {
+        // MCPToolExecutor expects the format: {"function": {"name": "...", "arguments": {...}}}
+        JsonObject function = new JsonObject();
+        function.addProperty("name", toolCall.getToolName());
+        function.add("arguments", toolCall.getParameters());
+        
         JsonObject mcpCall = new JsonObject();
-        mcpCall.addProperty("name", toolCall.getToolName());
-        mcpCall.add("arguments", toolCall.getParameters());
+        mcpCall.add("function", function);
+        
         return mcpCall;
     }
     
@@ -831,6 +898,18 @@ public class AIService {
      */
     public void clearHistory() {
         messageHistory.clearHistory();
+        // Reset tool calling state when clearing history
+        consecutiveToolFailures = 0;
+        toolCallsDisabled = false;
+    }
+    
+    /**
+     * Reset tool calling state (useful for debugging or manual reset)
+     */
+    public void resetToolCallState() {
+        consecutiveToolFailures = 0;
+        toolCallsDisabled = false;
+        plugin.getLogger().info("Tool calling state has been reset");
     }
     
     /**
