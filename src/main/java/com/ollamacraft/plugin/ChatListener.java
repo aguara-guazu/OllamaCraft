@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 
 /**
  * Listener for chat events to enable AI interactions
+ * Now includes intelligent response detection
  */
 public class ChatListener implements Listener {
     
@@ -23,6 +24,9 @@ public class ChatListener implements Listener {
     private String triggerPrefix;
     private String responseFormat;
     
+    // Intelligent detection service
+    private ResponseDetectionService detectionService;
+    
     /**
      * Constructor for ChatListener
      * @param plugin The OllamaCraft plugin instance
@@ -30,6 +34,28 @@ public class ChatListener implements Listener {
     public ChatListener(OllamaCraft plugin) {
         this.plugin = plugin;
         loadConfig();
+        initializeDetectionService();
+    }
+    
+    /**
+     * Initialize the intelligent detection service
+     */
+    private void initializeDetectionService() {
+        try {
+            // Note: This would be initialized in the actual plugin startup
+            // For now, we'll handle the case where it might be null
+            // detectionService = plugin.getDetectionService();
+        } catch (Exception e) {
+            plugin.getLogger().warning("Failed to initialize detection service: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Set the detection service (called from plugin initialization)
+     */
+    public void setDetectionService(ResponseDetectionService detectionService) {
+        this.detectionService = detectionService;
+        plugin.getLogger().info("Intelligent detection service enabled in chat listener");
     }
     
     /**
@@ -57,46 +83,97 @@ public class ChatListener implements Listener {
         
         String message = textComponent.content();
         
-        // Check if the message should trigger an AI response
-        if (shouldProcessMessage(message)) {
-            // Don't cancel the event, let the chat message go through
-            
-            // Process AI query asynchronously
-            final String queryToProcess = message.startsWith(triggerPrefix) 
-                ? message.substring(triggerPrefix.length()).trim() 
-                : message;
-                
-            CompletableFuture.runAsync(() -> {
-                try {
-                    // Get response from AI
-                    String aiResponse = plugin.getAIService().sendChatMessage(player, queryToProcess);
+        // Check if the message should trigger an AI response using intelligent detection
+        if (detectionService != null) {
+            // Use intelligent detection service
+            detectionService.analyzeMessage(player, message)
+                .thenAccept(detectionResult -> {
+                    plugin.getLogger().fine("Detection result: " + detectionResult.shouldRespond() + 
+                                          " (confidence: " + detectionResult.getConfidence() + 
+                                          ", method: " + detectionResult.getMethod() + 
+                                          ", reason: " + detectionResult.getReason() + ")");
                     
-                    // Format the response
-                    String formattedResponse = formatResponse(aiResponse);
+                    if (detectionResult.shouldRespond() && 
+                        detectionResult.getConfidence() >= plugin.getAIConfiguration().getConfidenceThreshold()) {
+                        processAIResponse(player, message, detectionResult);
+                    } else if (detectionResult.shouldRespond()) {
+                        plugin.getLogger().fine("Detection result below confidence threshold: " + 
+                                              detectionResult.getConfidence() + " < " + 
+                                              plugin.getAIConfiguration().getConfidenceThreshold());
+                    }
+                })
+                .exceptionally(throwable -> {
+                    plugin.getLogger().warning("Detection analysis failed: " + throwable.getMessage());
                     
-                    // Send response on the main thread
-                    plugin.getServer().getScheduler().runTask(plugin, () -> {
-                        // Broadcast to all players
-                        plugin.getServer().broadcast(Component.text(formattedResponse)
-                                .color(NamedTextColor.GREEN));
-                    });
-                } catch (Exception e) {
-                    plugin.getLogger().severe("Error processing AI response: " + e.getMessage());
-                    plugin.getServer().getScheduler().runTask(plugin, () -> {
-                        player.sendMessage(Component.text("An error occurred while processing your request.")
-                                .color(NamedTextColor.RED));
-                    });
-                }
-            });
+                    // Fallback to traditional method if enabled
+                    if (shouldProcessMessageFallback(message)) {
+                        processAIResponse(player, message, null);
+                    }
+                    return null;
+                });
+        } else {
+            // Fallback to traditional detection
+            if (shouldProcessMessageFallback(message)) {
+                processAIResponse(player, message, null);
+            }
         }
     }
     
     /**
-     * Check if a message should trigger an AI response
+     * Process AI response based on detection result
+     * @param player The player who sent the message
+     * @param message The original message
+     * @param detectionResult Detection result (may be null for fallback mode)
+     */
+    private void processAIResponse(Player player, String message, ResponseDetectionService.DetectionResult detectionResult) {
+        // Don't cancel the original chat event, let the message go through
+        
+        // Determine query to process
+        final String queryToProcess = message.startsWith(triggerPrefix) 
+            ? message.substring(triggerPrefix.length()).trim() 
+            : message;
+            
+        CompletableFuture.runAsync(() -> {
+            try {
+                // Add to context for future detection
+                if (detectionService != null) {
+                    detectionService.addToContext(player, message, false);
+                }
+                
+                // Get response from AI
+                String aiResponse = plugin.getAIService().sendChatMessage(player, queryToProcess);
+                
+                // Add AI response to context
+                if (detectionService != null) {
+                    detectionService.addToContext(player, aiResponse, true);
+                }
+                
+                // Format the response
+                String formattedResponse = formatResponse(aiResponse);
+                
+                // Send response on the main thread
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    // Broadcast to all players
+                    plugin.getServer().broadcast(Component.text(formattedResponse)
+                            .color(NamedTextColor.GREEN));
+                });
+                
+            } catch (Exception e) {
+                plugin.getLogger().severe("Error processing AI response: " + e.getMessage());
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    player.sendMessage(Component.text("An error occurred while processing your request.")
+                            .color(NamedTextColor.RED));
+                });
+            }
+        });
+    }
+    
+    /**
+     * Fallback method to check if a message should trigger an AI response
      * @param message The chat message
      * @return True if the message should be processed
      */
-    private boolean shouldProcessMessage(String message) {
+    private boolean shouldProcessMessageFallback(String message) {
         if (monitorAllChat) {
             return true;
         }

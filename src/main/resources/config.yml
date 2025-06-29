@@ -1,34 +1,80 @@
 # OllamaCraft Configuration
 
-# Ollama API Settings
-ollama:
-  # The URL of the Ollama API
-  api-url: "http://localhost:11434/api"
-  # The model to use for AI responses
-  model: "llama3"
-  # The system prompt to use for context
-  system-prompt: "You are Steve, a helpful assistant in a Minecraft world. You can answer questions about Minecraft and help players with their tasks."
+# Main AI Settings
+ai:
+  # Primary AI provider (ollama, claude, openai)
+  provider: "ollama"
+  # Configurable agent name
+  agent-name: "Steve"
+  # System prompt with agent name placeholder
+  system-prompt: "You are {agent_name}, a helpful assistant in a Minecraft world. You can answer questions about Minecraft and help players with their tasks."
   # Temperature setting (0.0 to 1.0) - higher values make responses more random
   temperature: 0.7
   # Maximum context length to preserve (number of most recent messages)
   max-context-length: 50
-  # Error handling configuration
-  error-handling:
-    # Maximum number of retry attempts for failed API requests
-    max-retries: 3
-    # Base delay between retries in milliseconds (uses exponential backoff)
-    base-retry-delay-ms: 1000
-    # Request timeout in seconds for Ollama API calls
-    request-timeout-seconds: 60
+
+# Provider-specific configurations
+ollama:
+  # The model to use for AI responses
+  model: "llama3.1"
+  # The URL of the Ollama API
+  base-url: "http://localhost:11434/api"
+  # Request timeout in seconds for Ollama API calls
+  timeout-seconds: 60
+  # Maximum number of retry attempts for failed API requests
+  max-retries: 3
+
+claude:
+  # Claude model to use
+  model: "claude-3-5-sonnet-20241022"
+  # Your Claude API key
+  api-key: "your-claude-api-key"
+  # Claude API base URL
+  base-url: "https://api.anthropic.com/v1"
+  # Request timeout in seconds
+  timeout-seconds: 60
+  # Maximum retry attempts
+  max-retries: 3
+
+openai:
+  # OpenAI model to use
+  model: "gpt-4o"
+  # Your OpenAI API key
+  api-key: "your-openai-api-key"
+  # OpenAI API base URL
+  base-url: "https://api.openai.com/v1"
+  # Organization ID (optional)
+  organization: "your-org-id"
+  # Request timeout in seconds
+  timeout-seconds: 60
+  # Maximum retry attempts
+  max-retries: 3
 
 # Chat Settings
 chat:
   # Whether to monitor all chat for AI interactions
   monitor-all-chat: false
-  # Prefix that triggers AI response in chat (if monitor-all-chat is false)
+  # Prefix that triggers AI response in chat (fallback mode)
   trigger-prefix: "Steve, "
-  # How AI responses should be formatted
-  response-format: "[Steve] &a%message%"
+  # How AI responses should be formatted (use {agent_name} placeholder)
+  response-format: "[{agent_name}] &a%message%"
+  
+  # Intelligent Detection System
+  detection:
+    # Enable intelligent response detection (recommended for advanced users)
+    intelligent-detection: false
+    # AI provider to use for detection analysis (should be fast)
+    detection-provider: "ollama"
+    # Timeout for detection analysis in seconds
+    detection-timeout-seconds: 3
+    # Fallback to prefix detection if intelligent detection fails
+    fallback-to-prefix: true
+    # Minimum confidence threshold to trigger response (0.0-1.0)
+    confidence-threshold: 0.6
+    # Cache similar detection decisions for performance
+    cache-decisions: true
+    # How long to cache decisions in minutes
+    cache-duration-minutes: 5
 
 # Startup Integration Test
 startup-test:

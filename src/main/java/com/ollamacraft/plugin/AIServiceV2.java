@@ -168,16 +168,7 @@ public class AIServiceV2 {
      */
     private void initializeResponseDetection() {
         if (configuration.isIntelligentDetection()) {
-            this.responseDetection = new ResponseDetectionService(logger, detectionProvider, configuration.getAgentName());
-            
-            // Configure detection service
-            JsonObject detectionConfig = new JsonObject();
-            detectionConfig.addProperty("intelligent-detection", configuration.isIntelligentDetection());
-            detectionConfig.addProperty("fallback-to-prefix", configuration.isFallbackToPrefix());
-            detectionConfig.addProperty("trigger-prefix", configuration.getTriggerPrefix());
-            detectionConfig.addProperty("detection-timeout-seconds", configuration.getDetectionTimeoutSeconds());
-            
-            responseDetection.configure(detectionConfig);
+            this.responseDetection = new ResponseDetectionService(configuration, providerFactory, logger);
             logger.info("Intelligent response detection initialized");
         } else {
             logger.info("Intelligent response detection disabled - using simple prefix detection");
@@ -201,11 +192,11 @@ public class AIServiceV2 {
     
     /**
      * Process chat message and determine if AI should respond
+     * @param player Player who sent the message
      * @param message Chat message
-     * @param playerName Player name
      * @return CompletableFuture<Boolean> indicating whether to respond
      */
-    public CompletableFuture<Boolean> shouldRespond(String message, String playerName) {
+    public CompletableFuture<Boolean> shouldRespond(Player player, String message) {
         // Quick prefix check for immediate response
         if (message.toLowerCase().startsWith(configuration.getTriggerPrefix().toLowerCase())) {
             return CompletableFuture.completedFuture(true);
@@ -213,8 +204,9 @@ public class AIServiceV2 {
         
         // Use intelligent detection if enabled
         if (responseDetection != null) {
-            List<ChatMessage> recentMessages = getRecentMessages(playerName, 5);
-            return responseDetection.shouldRespond(message, playerName, recentMessages);
+            return responseDetection.analyzeMessage(player, message)
+                .thenApply(result -> result.shouldRespond() && 
+                          result.getConfidence() >= configuration.getConfidenceThreshold());
         }
         
         // Fallback to simple detection

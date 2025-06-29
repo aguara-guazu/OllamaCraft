@@ -36,6 +36,9 @@ public class AIConfiguration {
     private boolean fallbackToPrefix;
     private int detectionTimeoutSeconds;
     private String detectionProvider;
+    private double confidenceThreshold;
+    private boolean cacheDecisions;
+    private int cacheDurationMinutes;
     
     // MCP settings
     private boolean mcpEnabled;
@@ -145,10 +148,13 @@ public class AIConfiguration {
         responseFormat = responseFormat.replace("{agent_name}", agentName);
         
         // Load detection settings
-        intelligentDetection = config.getBoolean("chat.detection.intelligent-detection", true);
+        intelligentDetection = config.getBoolean("chat.detection.intelligent-detection", false);
         fallbackToPrefix = config.getBoolean("chat.detection.fallback-to-prefix", true);
-        detectionTimeoutSeconds = config.getInt("chat.detection.detection-timeout-seconds", 5);
+        detectionTimeoutSeconds = config.getInt("chat.detection.detection-timeout-seconds", 3);
         detectionProvider = config.getString("chat.detection.detection-provider", "ollama");
+        confidenceThreshold = config.getDouble("chat.detection.confidence-threshold", 0.6);
+        cacheDecisions = config.getBoolean("chat.detection.cache-decisions", true);
+        cacheDurationMinutes = config.getInt("chat.detection.cache-duration-minutes", 5);
     }
     
     /**
@@ -195,6 +201,9 @@ public class AIConfiguration {
         fallbackToPrefix = true;
         detectionTimeoutSeconds = 5;
         detectionProvider = "ollama";
+        confidenceThreshold = 0.6;
+        cacheDecisions = true;
+        cacheDurationMinutes = 5;
         
         mcpEnabled = false;
         mcpConfig = new HashMap<>();
@@ -265,6 +274,9 @@ public class AIConfiguration {
     public boolean isFallbackToPrefix() { return fallbackToPrefix; }
     public int getDetectionTimeoutSeconds() { return detectionTimeoutSeconds; }
     public String getDetectionProvider() { return detectionProvider; }
+    public double getConfidenceThreshold() { return confidenceThreshold; }
+    public boolean isCacheDecisions() { return cacheDecisions; }
+    public int getCacheDurationMinutes() { return cacheDurationMinutes; }
     
     public boolean isMcpEnabled() { return mcpEnabled; }
     public Map<String, Object> getMcpConfig() { return mcpConfig; }
@@ -313,6 +325,8 @@ public class AIConfiguration {
         summary.append("- Temperature: ").append(temperature).append("\n");
         summary.append("- Max Context: ").append(maxContextLength).append("\n");
         summary.append("- Intelligent Detection: ").append(intelligentDetection).append("\n");
+        summary.append("- Detection Provider: ").append(detectionProvider).append("\n");
+        summary.append("- Confidence Threshold: ").append(confidenceThreshold).append("\n");
         summary.append("- MCP Enabled: ").append(mcpEnabled).append("\n");
         
         Map<String, Object> primaryConfig = getProviderConfiguration(primaryProvider);
