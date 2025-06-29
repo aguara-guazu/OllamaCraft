@@ -22,6 +22,15 @@ chat:
   # How AI responses should be formatted
   response-format: "[Steve] &a%message%"
 
+# Startup Integration Test
+startup-test:
+  # Enable automatic startup test to verify AI and MCP integration
+  enabled: true
+  # Delay before running startup test (in seconds) - allows server to fully start
+  delay-seconds: 5
+  # Whether to broadcast the startup test to all players
+  broadcast-to-players: true
+
 # MCP Integration (Advanced Feature)
 # MCP allows the AI to execute Minecraft commands automatically
 # IMPORTANT: Requires a separate MCP server to be running

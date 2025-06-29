@@ -304,6 +304,36 @@ tail -f /path/to/minecraft/logs/latest.log
 
 ## AI Integration Details
 
+### Startup Integration Test
+
+The plugin includes an automatic startup test that verifies AI and MCP functionality:
+
+**Features:**
+- **Automatic Greeting**: AI introduces itself when server starts
+- **MCP Tools Discovery**: Reports available tools and capabilities
+- **Full Integration Test**: Tests actual AI communication and tool calling
+- **Configurable Timing**: Adjustable delay to ensure server is fully ready
+- **Broadcasting Options**: Can announce to all players or log-only
+
+**Configuration:**
+```yaml
+startup-test:
+  enabled: true              # Enable/disable startup test
+  delay-seconds: 5           # Wait time before running test
+  broadcast-to-players: true # Announce to players vs log-only
+```
+
+**What the AI Will Report:**
+- Successful connection to Ollama
+- Available MCP tools (if MCP server is running)
+- Current operational mode (basic chat vs full tool access)
+- Friendly introduction for players
+
+**Example Output:**
+```
+[Steve] Good morning! The server has just started and I'm ready to help! I currently have access to 8 MCP tools including server management, player commands, and world control. Feel free to ask me anything or request assistance with your Minecraft adventures!
+```
+
 ### Conversation Flow
 1. **Player Message** → Chat listener captures trigger
 2. **History Management** → Message added to context

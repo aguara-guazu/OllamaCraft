@@ -29,6 +29,9 @@ public class OllamaCraft extends JavaPlugin {
         // Register event listeners
         registerEventListeners();
         
+        // Schedule startup integration test
+        scheduleStartupTest();
+        
         getLogger().info("OllamaCraft has been enabled!");
     }
     
@@ -73,6 +76,33 @@ public class OllamaCraft extends JavaPlugin {
     private void registerEventListeners() {
         // Register chat listener
         getServer().getPluginManager().registerEvents(new ChatListener(this), this);
+    }
+    
+    /**
+     * Schedule the startup integration test
+     */
+    private void scheduleStartupTest() {
+        // Check if startup test is enabled
+        boolean startupTestEnabled = getConfig().getBoolean("startup-test.enabled", true);
+        if (!startupTestEnabled) {
+            getLogger().info("Startup integration test is disabled");
+            return;
+        }
+        
+        // Get delay from config
+        int delaySeconds = getConfig().getInt("startup-test.delay-seconds", 5);
+        long delayTicks = delaySeconds * 20L; // Convert seconds to ticks (20 ticks = 1 second)
+        
+        getLogger().info("Scheduling AI startup integration test in " + delaySeconds + " seconds...");
+        
+        // Schedule the test to run after server fully starts
+        getServer().getScheduler().runTaskLater(this, () -> {
+            if (aiService != null) {
+                aiService.performStartupTest();
+            } else {
+                getLogger().warning("AI service not available for startup test");
+            }
+        }, delayTicks);
     }
     
     /**

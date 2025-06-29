@@ -344,4 +344,175 @@ public class AIService {
     public MCPService getMcpService() {
         return mcpService;
     }
+    
+    /**
+     * Perform startup integration test to verify AI and MCP functionality
+     * This method sends a greeting message and reports available tools
+     */
+    public void performStartupTest() {
+        plugin.getLogger().info("Starting AI integration test...");
+        
+        // Run async to avoid blocking server startup
+        plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+            try {
+                // Build startup test message
+                StringBuilder testPrompt = new StringBuilder();
+                testPrompt.append("Good morning! The server has just started. ");
+                testPrompt.append("Please introduce yourself to the players and report on your current capabilities. ");
+                
+                // Check MCP tools availability
+                if (toolProvider != null && mcpService.isRunning()) {
+                    testPrompt.append("Please list the MCP tools you have access to and briefly explain what you can do with them. ");
+                } else {
+                    testPrompt.append("Note that MCP tools are not currently available, so you're operating in basic chat mode only. ");
+                }
+                
+                testPrompt.append("Keep your response friendly and informative for the players.");
+                
+                // Add startup message to history
+                messageHistory.addMessage(new ChatMessage("user", "SYSTEM_STARTUP_TEST: " + testPrompt.toString()));
+                
+                // Process the conversation to get AI response
+                String response = processStartupTest();
+                
+                if (response != null && !response.isEmpty()) {
+                    // Format and broadcast the response
+                    String formattedResponse = formatStartupResponse(response);
+                    broadcastStartupMessage(formattedResponse);
+                    
+                    plugin.getLogger().info("AI startup test completed successfully");
+                } else {
+                    plugin.getLogger().warning("AI startup test failed - no response received");
+                }
+                
+            } catch (Exception e) {
+                plugin.getLogger().log(Level.WARNING, "AI startup test failed", e);
+            }
+        });
+    }
+    
+    /**
+     * Process the startup test conversation
+     * @return The AI's response to the startup test
+     */
+    private String processStartupTest() throws Exception {
+        int maxToolCalls = 3; // Limit tool calls during startup test
+        int toolCallCount = 0;
+        
+        while (toolCallCount < maxToolCalls) {
+            // Create request body
+            JsonObject requestBody = buildChatRequest();
+            
+            // Add tools if available
+            if (toolProvider != null && mcpToolsEnabled && mcpService.isRunning()) {
+                List<JsonObject> tools = toolProvider.getToolsForOllama().join();
+                if (!tools.isEmpty()) {
+                    JsonArray toolsArray = new JsonArray();
+                    for (JsonObject tool : tools) {
+                        toolsArray.add(tool);
+                    }
+                    requestBody.add("tools", toolsArray);
+                    plugin.getLogger().info("Startup test: " + tools.size() + " MCP tools available to AI");
+                }
+            }
+            
+            // Build and execute HTTP request
+            Request request = new Request.Builder()
+                .url(apiUrl + "/chat")
+                .post(RequestBody.create(requestBody.toString(), MediaType.parse("application/json")))
+                .build();
+            
+            Response response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                throw new IOException("Unexpected response code: " + response);
+            }
+            
+            // Parse response
+            String responseBody = response.body().string();
+            JsonObject jsonResponse = gson.fromJson(responseBody, JsonObject.class);
+            
+            if (!jsonResponse.has("message")) {
+                throw new IOException("Invalid response format: missing message");
+            }
+            
+            JsonObject message = jsonResponse.getAsJsonObject("message");
+            
+            // Check if the AI wants to call tools
+            if (message.has("tool_calls")) {
+                JsonArray toolCalls = message.getAsJsonArray("tool_calls");
+                toolCallCount++;
+                
+                plugin.getLogger().info("Startup test: AI requested " + toolCalls.size() + " tool calls");
+                
+                // Add the assistant message with tool calls to history
+                String assistantContent = message.has("content") ? 
+                    message.get("content").getAsString() : "";
+                messageHistory.addMessage(new ChatMessage("assistant", assistantContent));
+                
+                // Execute each tool call
+                for (JsonElement toolCallElement : toolCalls) {
+                    JsonObject toolCall = toolCallElement.getAsJsonObject();
+                    
+                    if (toolExecutor != null && toolExecutor.isValidToolCall(toolCall)) {
+                        JsonObject toolResult = toolExecutor.executeToolCall(toolCall).join();
+                        
+                        // Add tool result to history
+                        String toolResultContent = toolResult.has("content") ? 
+                            toolResult.get("content").getAsString() : "Tool executed";
+                        messageHistory.addMessage(new ChatMessage("tool", toolResultContent));
+                        
+                        plugin.getLogger().info("Startup test: Tool executed successfully");
+                    } else {
+                        // Add error result for invalid tool call
+                        messageHistory.addMessage(new ChatMessage("tool", "Error: Invalid tool call"));
+                    }
+                }
+                
+                // Continue the loop to get the AI's final response
+                continue;
+            }
+            
+            // No tool calls, this is the final response
+            String aiResponse = message.has("content") ? 
+                message.get("content").getAsString() : "";
+            
+            // Add assistant response to history
+            messageHistory.addMessage(new ChatMessage("assistant", aiResponse));
+            
+            return aiResponse;
+        }
+        
+        // Too many tool calls, return a fallback message
+        return "Hello! The server has started and I'm ready to assist you. My systems are operational!";
+    }
+    
+    /**
+     * Format the startup response for display
+     * @param response The raw AI response
+     * @return Formatted response
+     */
+    private String formatStartupResponse(String response) {
+        FileConfiguration config = plugin.getConfig();
+        String format = config.getString("chat.response-format", "[Steve] &a%message%");
+        return format.replace("%message%", response);
+    }
+    
+    /**
+     * Broadcast the startup message to players and console
+     * @param message The formatted message to broadcast
+     */
+    private void broadcastStartupMessage(String message) {
+        FileConfiguration config = plugin.getConfig();
+        boolean broadcastToPlayers = config.getBoolean("startup-test.broadcast-to-players", true);
+        
+        // Always log to console
+        plugin.getLogger().info("AI Startup Message: " + message);
+        
+        // Broadcast to players if enabled
+        if (broadcastToPlayers) {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                plugin.getServer().broadcastMessage(message);
+            });
+        }
+    }
 }
