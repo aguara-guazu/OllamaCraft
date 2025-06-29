@@ -7,7 +7,7 @@ ollama:
   # The model to use for AI responses
   model: "llama3"
   # The system prompt to use for context
-  system-prompt: "You are Steve, a helpful assistant in a Minecraft world. You can answer questions about Minecraft and help players with their tasks. You have access to Minecraft tools through MCP that allow you to execute commands and interact with the server."
+  system-prompt: "You are Steve, a helpful assistant in a Minecraft world. You can answer questions about Minecraft and help players with their tasks."
   # Temperature setting (0.0 to 1.0) - higher values make responses more random
   temperature: 0.7
   # Maximum context length to preserve (number of most recent messages)
@@ -22,10 +22,14 @@ chat:
   # How AI responses should be formatted
   response-format: "[Steve] &a%message%"
 
-# MCP Integration
+# MCP Integration (Advanced Feature)
+# MCP allows the AI to execute Minecraft commands automatically
+# IMPORTANT: Requires a separate MCP server to be running
+# Set enabled to false for basic AI chat functionality only
 mcp:
   # Whether to enable the Minecraft Command Protocol integration
-  enabled: true
+  # Set to false if you don't have an MCP server running
+  enabled: false
   # MCP server configuration
   server:
     # The URL of the Minecraft MCP server

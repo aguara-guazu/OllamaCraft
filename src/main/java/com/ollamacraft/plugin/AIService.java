@@ -87,7 +87,7 @@ public class AIService {
      */
     private void initializeMCPTools() {
         if (!mcpToolsEnabled || !mcpService.isEnabled()) {
-            plugin.getLogger().info("MCP tools integration disabled");
+            plugin.getLogger().info("MCP tools integration disabled - AI will work without tool capabilities");
             toolProvider = null;
             toolExecutor = null;
             return;
@@ -113,10 +113,14 @@ public class AIService {
                 
                 plugin.getLogger().info("MCP tools integration initialized with native Java bridge");
             } else {
-                plugin.getLogger().warning("MCP bridge not running, tools integration disabled");
+                plugin.getLogger().info("MCP bridge not running - AI will work with basic chat functionality only");
+                toolProvider = null;
+                toolExecutor = null;
             }
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Failed to initialize MCP tools integration", e);
+            plugin.getLogger().log(Level.WARNING, "Failed to initialize MCP tools integration - AI will work with basic chat functionality only", e);
+            toolProvider = null;
+            toolExecutor = null;
         }
     }
     

@@ -42,7 +42,7 @@ public class MCPService {
     public void initialize() {
         FileConfiguration config = plugin.getConfig();
         
-        this.enabled = config.getBoolean("mcp.enabled", true);
+        this.enabled = config.getBoolean("mcp.enabled", false);
         this.autoStart = config.getBoolean("mcp.client.auto-start", true);
         this.serverUrl = config.getString("mcp.server.url", "http://localhost:25575");
         this.apiKey = config.getString("mcp.server.api-key", "");
@@ -61,7 +61,12 @@ public class MCPService {
         }
         
         if (enabled && autoStart) {
-            startMCPBridge();
+            startMCPBridge().whenComplete((success, throwable) -> {
+                if (!success || throwable != null) {
+                    plugin.getLogger().warning("MCP bridge failed to start, but plugin will continue with basic AI functionality. " +
+                        "To enable MCP tools, ensure an MCP server is running at: " + serverUrl);
+                }
+            });
         }
     }
     
@@ -99,7 +104,8 @@ public class MCPService {
                 return true;
                 
             } catch (Exception e) {
-                plugin.getLogger().log(Level.SEVERE, "Error starting integrated MCP bridge", e);
+                plugin.getLogger().log(Level.WARNING, "MCP bridge could not connect to server at " + serverUrl + 
+                    ". This is expected if no MCP server is running. AI chat will work without tool functionality.", e);
                 isRunning = false;
                 return false;
             }
