@@ -160,19 +160,18 @@ public class ClaudeProvider extends BaseAIProvider {
         
         request.add("messages", messageArray);
         
-        // Add tools if available
+        // Add tools if available (tools are now pre-converted by tool converter system)
         if (!tools.isEmpty()) {
             JsonArray toolsArray = new JsonArray();
             for (JsonObject tool : tools) {
-                JsonObject claudeTool = convertToolForClaude(tool);
-                if (claudeTool != null) {
-                    toolsArray.add(claudeTool);
-                }
+                toolsArray.add(tool);
             }
-            if (toolsArray.size() > 0) {
-                request.add("tools", toolsArray);
-                request.addProperty("tool_choice", "auto");
-            }
+            request.add("tools", toolsArray);
+            
+            // Claude requires tool_choice as an object, not a string
+            JsonObject toolChoice = new JsonObject();
+            toolChoice.addProperty("type", "auto");
+            request.add("tool_choice", toolChoice);
         }
         
         return request;
@@ -193,43 +192,6 @@ public class ClaudeProvider extends BaseAIProvider {
         }
     }
     
-    /**
-     * Convert MCP tool to Claude tool format
-     */
-    private JsonObject convertToolForClaude(JsonObject mcpTool) {
-        try {
-            if (!mcpTool.has("function")) {
-                return null;
-            }
-            
-            JsonObject function = mcpTool.getAsJsonObject("function");
-            String name = function.get("name").getAsString();
-            String description = function.has("description") ? 
-                function.get("description").getAsString() : "Tool: " + name;
-            
-            JsonObject claudeTool = new JsonObject();
-            claudeTool.addProperty("name", name);
-            claudeTool.addProperty("description", description);
-            
-            // Convert parameters to input_schema
-            if (function.has("parameters")) {
-                JsonObject parameters = function.getAsJsonObject("parameters");
-                claudeTool.add("input_schema", parameters);
-            } else {
-                // Default schema
-                JsonObject defaultSchema = new JsonObject();
-                defaultSchema.addProperty("type", "object");
-                defaultSchema.add("properties", new JsonObject());
-                claudeTool.add("input_schema", defaultSchema);
-            }
-            
-            return claudeTool;
-            
-        } catch (Exception e) {
-            warn("Failed to convert tool for Claude: " + e.getMessage());
-            return null;
-        }
-    }
     
     /**
      * Execute Claude API request with retry logic

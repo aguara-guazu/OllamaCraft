@@ -44,13 +44,15 @@ public class AIServiceV2 {
     
     // Tool management
     private ToolConverterFactory toolConverterFactory;
-    private List<JsonObject> availableTools;
+    private List<JsonObject> originalMCPTools; // Store original MCP tools
+    private Map<String, List<JsonObject>> convertedToolsCache; // Cache converted tools per provider
     private boolean toolsEnabled;
     
     public AIServiceV2(OllamaCraft plugin) {
         this.plugin = plugin;
         this.logger = plugin.getLogger();
         this.playerMessageHistories = new ConcurrentHashMap<>();
+        this.convertedToolsCache = new ConcurrentHashMap<>();
         
         // Initialize configuration
         this.configuration = new AIConfiguration(plugin.getConfig(), logger);
@@ -177,17 +179,63 @@ public class AIServiceV2 {
     }
     
     /**
-     * Load available tools from MCP
+     * Load available tools from MCP in original format
      */
     private void loadAvailableTools() {
         if (toolProvider != null) {
             try {
-                this.availableTools = toolProvider.getToolsForOllama().get();
-                logger.info("Loaded " + availableTools.size() + " MCP tools");
+                this.originalMCPTools = toolProvider.getOriginalMCPTools().get();
+                logger.info("Loaded " + originalMCPTools.size() + " original MCP tools");
+                // Clear the converted tools cache when tools are reloaded
+                convertedToolsCache.clear();
             } catch (Exception e) {
                 logger.warning("Failed to load MCP tools: " + e.getMessage());
-                this.availableTools = new java.util.ArrayList<>();
+                this.originalMCPTools = new java.util.ArrayList<>();
             }
+        }
+    }
+    
+    /**
+     * Get tools converted for a specific provider with caching
+     * @param providerName Name of the provider
+     * @return List of tools in provider-specific format
+     */
+    private List<JsonObject> getToolsForProvider(String providerName) {
+        if (originalMCPTools == null || originalMCPTools.isEmpty()) {
+            return new ArrayList<>();
+        }
+        
+        // Check cache first
+        List<JsonObject> cached = convertedToolsCache.get(providerName);
+        if (cached != null) {
+            logger.fine("Using cached tools for provider: " + providerName);
+            return cached;
+        }
+        
+        // Convert tools for this provider
+        try {
+            ToolConverter converter = toolConverterFactory.getConverter(providerName);
+            List<JsonObject> converted = converter.convertTools(originalMCPTools);
+            
+            // Validate converted tools
+            List<JsonObject> validatedTools = new ArrayList<>();
+            for (JsonObject tool : converted) {
+                if (converter.validateTool(tool)) {
+                    validatedTools.add(tool);
+                } else {
+                    logger.warning("Invalid tool format for provider " + providerName + ": " + tool.toString());
+                }
+            }
+            
+            // Cache the validated tools
+            convertedToolsCache.put(providerName, validatedTools);
+            logger.info("Converted and validated " + validatedTools.size() + "/" + converted.size() + " tools for provider: " + providerName);
+            
+            return validatedTools;
+            
+        } catch (Exception e) {
+            logger.warning("Failed to convert tools for provider " + providerName + ": " + e.getMessage());
+            return new ArrayList<>();
         }
     }
     
@@ -234,8 +282,10 @@ public class AIServiceV2 {
                 
                 // Generate response with tools if available
                 CompletableFuture<AIResponse> responseFuture;
-                if (toolsEnabled && availableTools != null && !availableTools.isEmpty() && primaryProvider.supportsNativeTools()) {
-                    responseFuture = primaryProvider.chatWithTools(conversationHistory, configuration.getSystemPrompt(), availableTools);
+                if (toolsEnabled && originalMCPTools != null && !originalMCPTools.isEmpty() && primaryProvider.supportsNativeTools()) {
+                    // Get provider-specific tools
+                    List<JsonObject> providerTools = getToolsForProvider(primaryProvider.getProviderName());
+                    responseFuture = primaryProvider.chatWithTools(conversationHistory, configuration.getSystemPrompt(), providerTools);
                 } else {
                     responseFuture = primaryProvider.chat(conversationHistory, configuration.getSystemPrompt());
                 }
@@ -417,8 +467,9 @@ public class AIServiceV2 {
             
             // Get AI response
             CompletableFuture<AIResponse> future;
-            if (toolsEnabled && availableTools != null && !availableTools.isEmpty()) {
-                future = primaryProvider.chatWithTools(messages, configuration.getSystemPrompt(), availableTools);
+            if (toolsEnabled && originalMCPTools != null && !originalMCPTools.isEmpty()) {
+                List<JsonObject> providerTools = getToolsForProvider(primaryProvider.getProviderName());
+                future = primaryProvider.chatWithTools(messages, configuration.getSystemPrompt(), providerTools);
             } else {
                 future = primaryProvider.chat(messages, configuration.getSystemPrompt());
             }
@@ -553,8 +604,8 @@ public class AIServiceV2 {
         stats.append("- Primary Provider: ").append(primaryProvider.getProviderName()).append("\n");
         stats.append("- Detection Provider: ").append(detectionProvider.getProviderName()).append("\n");
         stats.append("- Tools Enabled: ").append(toolsEnabled).append("\n");
-        if (toolsEnabled && availableTools != null) {
-            stats.append("- Available Tools: ").append(availableTools.size()).append("\n");
+        if (toolsEnabled && originalMCPTools != null) {
+            stats.append("- Available Tools: ").append(originalMCPTools.size()).append("\n");
         }
         stats.append("- Active Player Histories: ").append(playerMessageHistories.size()).append("\n");
         stats.append("- Global History Size: ").append(globalMessageHistory.getMessages().size()).append("\n");
@@ -649,8 +700,8 @@ public class AIServiceV2 {
                 testPrompt.append("Please introduce yourself to the players and report on your current capabilities. ");
                 
                 // Check MCP tools availability
-                if (toolsEnabled && availableTools != null && !availableTools.isEmpty()) {
-                    testPrompt.append("I have access to ").append(availableTools.size()).append(" MCP tools for server management. ");
+                if (toolsEnabled && originalMCPTools != null && !originalMCPTools.isEmpty()) {
+                    testPrompt.append("I have access to ").append(originalMCPTools.size()).append(" MCP tools for server management. ");
                 } else {
                     testPrompt.append("Note that MCP tools are not currently available, so I'm operating in basic chat mode only. ");
                 }
@@ -702,9 +753,10 @@ public class AIServiceV2 {
             
             // Test provider connection and get response
             CompletableFuture<AIResponse> future;
-            if (toolsEnabled && availableTools != null && !availableTools.isEmpty()) {
-                logger.info("Testing with tools enabled (" + availableTools.size() + " tools available)");
-                future = primaryProvider.chatWithTools(messages, configuration.getSystemPrompt(), availableTools);
+            if (toolsEnabled && originalMCPTools != null && !originalMCPTools.isEmpty()) {
+                List<JsonObject> providerTools = getToolsForProvider(primaryProvider.getProviderName());
+                logger.info("Testing with tools enabled (" + providerTools.size() + " tools available)");
+                future = primaryProvider.chatWithTools(messages, configuration.getSystemPrompt(), providerTools);
             } else {
                 logger.info("Testing basic chat without tools");
                 future = primaryProvider.chat(messages, configuration.getSystemPrompt());
@@ -777,7 +829,7 @@ public class AIServiceV2 {
     // Getters for external access
     public AIConfiguration getConfiguration() { return configuration; }
     public boolean isToolsEnabled() { return toolsEnabled; }
-    public List<JsonObject> getAvailableTools() { return availableTools; }
+    public List<JsonObject> getAvailableTools() { return originalMCPTools; }
     public MessageHistory getGlobalMessageHistory() { return globalMessageHistory; }
     public Map<String, MessageHistory> getPlayerMessageHistories() { return playerMessageHistories; }
 }

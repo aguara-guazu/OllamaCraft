@@ -167,19 +167,14 @@ public class OpenAIProvider extends BaseAIProvider {
         
         request.add("messages", messageArray);
         
-        // Add tools if available
+        // Add tools if available (tools are now pre-converted by tool converter system)
         if (!tools.isEmpty()) {
             JsonArray toolsArray = new JsonArray();
             for (JsonObject tool : tools) {
-                JsonObject openAITool = convertToolForOpenAI(tool);
-                if (openAITool != null) {
-                    toolsArray.add(openAITool);
-                }
+                toolsArray.add(tool);
             }
-            if (toolsArray.size() > 0) {
-                request.add("tools", toolsArray);
-                request.addProperty("tool_choice", "auto");
-            }
+            request.add("tools", toolsArray);
+            request.addProperty("tool_choice", "auto");
         }
         
         return request;
@@ -202,28 +197,6 @@ public class OpenAIProvider extends BaseAIProvider {
         }
     }
     
-    /**
-     * Convert MCP tool to OpenAI tool format
-     */
-    private JsonObject convertToolForOpenAI(JsonObject mcpTool) {
-        try {
-            if (!mcpTool.has("function")) {
-                return null;
-            }
-            
-            JsonObject function = mcpTool.getAsJsonObject("function");
-            
-            JsonObject openAITool = new JsonObject();
-            openAITool.addProperty("type", "function");
-            openAITool.add("function", function); // OpenAI uses the same format as MCP
-            
-            return openAITool;
-            
-        } catch (Exception e) {
-            warn("Failed to convert tool for OpenAI: " + e.getMessage());
-            return null;
-        }
-    }
     
     /**
      * Execute OpenAI API request with retry logic

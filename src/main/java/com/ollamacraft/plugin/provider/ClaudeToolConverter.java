@@ -21,24 +21,40 @@ public class ClaudeToolConverter implements ToolConverter {
     @Override
     public JsonObject convertTool(JsonObject mcpTool) {
         try {
-            if (!mcpTool.has("function")) {
-                logger.warning("MCP tool missing 'function' field for Claude conversion");
+            // Handle both original MCP format and Ollama format for backward compatibility
+            JsonObject toolToConvert = mcpTool;
+            
+            // If it's already in Ollama format, extract the function
+            if (mcpTool.has("function")) {
+                toolToConvert = mcpTool.getAsJsonObject("function");
+            }
+            
+            // Now toolToConvert should have name, description, and parameters (or inputSchema)
+            if (!toolToConvert.has("name")) {
+                logger.warning("MCP tool missing 'name' field for Claude conversion");
                 return null;
             }
             
-            JsonObject function = mcpTool.getAsJsonObject("function");
-            String name = function.get("name").getAsString();
-            String description = function.has("description") ? 
-                function.get("description").getAsString() : "Tool: " + name;
+            String name = toolToConvert.get("name").getAsString();
+            String description = toolToConvert.has("description") ? 
+                toolToConvert.get("description").getAsString() : "Tool: " + name;
             
             JsonObject claudeTool = new JsonObject();
             claudeTool.addProperty("name", name);
             claudeTool.addProperty("description", description);
             
-            // Convert parameters to input_schema
-            if (function.has("parameters")) {
-                JsonObject parameters = function.getAsJsonObject("parameters");
-                claudeTool.add("input_schema", parameters);
+            // Convert parameters/inputSchema to input_schema for Claude
+            JsonObject inputSchema = null;
+            if (toolToConvert.has("inputSchema")) {
+                // Original MCP format
+                inputSchema = toolToConvert.getAsJsonObject("inputSchema");
+            } else if (toolToConvert.has("parameters")) {
+                // Ollama format or OpenAI format
+                inputSchema = toolToConvert.getAsJsonObject("parameters");
+            }
+            
+            if (inputSchema != null) {
+                claudeTool.add("input_schema", inputSchema);
             } else {
                 // Default schema
                 JsonObject defaultSchema = new JsonObject();

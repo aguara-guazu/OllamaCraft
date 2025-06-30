@@ -38,6 +38,67 @@ public class MCPToolProvider {
     }
     
     /**
+     * Get all available MCP tools in original MCP format
+     * @return CompletableFuture with list of tools in original MCP format
+     */
+    public CompletableFuture<List<JsonObject>> getOriginalMCPTools() {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Check cache first
+                if (isCacheValid()) {
+                    debug("Returning cached original MCP tools");
+                    return new ArrayList<>(toolsCache.values());
+                }
+                
+                debug("Fetching original MCP tools from server");
+                
+                // Request tools from MCP server
+                JsonObject request = new JsonObject();
+                request.addProperty("jsonrpc", "2.0");
+                request.addProperty("id", "tools-list-original-" + System.currentTimeMillis());
+                request.addProperty("method", "tools/list");
+                request.add("params", new JsonObject());
+                
+                JsonObject response = httpClient.sendMessage(request).get(30, TimeUnit.SECONDS);
+                
+                if (response == null || !response.has("result")) {
+                    debug("No tools found in MCP response");
+                    return new ArrayList<>();
+                }
+                
+                JsonObject result = response.getAsJsonObject("result");
+                if (!result.has("tools")) {
+                    debug("No tools array in MCP result");
+                    return new ArrayList<>();
+                }
+                
+                JsonArray mcpTools = result.getAsJsonArray("tools");
+                List<JsonObject> originalTools = new ArrayList<>();
+                toolsCache.clear();
+                
+                // Store original MCP tools
+                for (JsonElement toolElement : mcpTools) {
+                    JsonObject mcpTool = toolElement.getAsJsonObject();
+                    originalTools.add(mcpTool);
+                    String toolName = mcpTool.get("name").getAsString();
+                    toolsCache.put(toolName, mcpTool);
+                }
+                
+                lastCacheUpdate = System.currentTimeMillis();
+                debug("Retrieved " + originalTools.size() + " original MCP tools");
+                
+                return originalTools;
+                
+            } catch (Exception e) {
+                if (logger != null) {
+                    logger.log(Level.WARNING, "[MCPToolProvider] Error fetching original MCP tools", e);
+                }
+                return new ArrayList<>();
+            }
+        });
+    }
+    
+    /**
      * Get all available MCP tools for Ollama
      * @return CompletableFuture with list of tools in Ollama format
      */

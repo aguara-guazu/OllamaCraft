@@ -21,16 +21,42 @@ public class OpenAIToolConverter implements ToolConverter {
     @Override
     public JsonObject convertTool(JsonObject mcpTool) {
         try {
-            if (!mcpTool.has("function")) {
-                logger.warning("MCP tool missing 'function' field for OpenAI conversion");
-                return null;
-            }
+            JsonObject function = new JsonObject();
             
-            JsonObject function = mcpTool.getAsJsonObject("function");
+            // Handle both original MCP format and Ollama format for backward compatibility
+            if (mcpTool.has("function")) {
+                // Already in Ollama format - extract the function
+                function = mcpTool.getAsJsonObject("function");
+            } else {
+                // Original MCP format - convert to OpenAI function format
+                if (!mcpTool.has("name")) {
+                    logger.warning("MCP tool missing 'name' field for OpenAI conversion");
+                    return null;
+                }
+                
+                String name = mcpTool.get("name").getAsString();
+                String description = mcpTool.has("description") ? 
+                    mcpTool.get("description").getAsString() : "Tool: " + name;
+                
+                function.addProperty("name", name);
+                function.addProperty("description", description);
+                
+                // Convert inputSchema to parameters for OpenAI
+                if (mcpTool.has("inputSchema")) {
+                    JsonObject inputSchema = mcpTool.getAsJsonObject("inputSchema");
+                    function.add("parameters", inputSchema);
+                } else {
+                    // Default parameters
+                    JsonObject parameters = new JsonObject();
+                    parameters.addProperty("type", "object");
+                    parameters.add("properties", new JsonObject());
+                    function.add("parameters", parameters);
+                }
+            }
             
             JsonObject openAITool = new JsonObject();
             openAITool.addProperty("type", "function");
-            openAITool.add("function", function); // OpenAI uses the same format as MCP
+            openAITool.add("function", function);
             
             return openAITool;
             
