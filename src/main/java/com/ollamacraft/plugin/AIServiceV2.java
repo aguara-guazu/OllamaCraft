@@ -300,6 +300,11 @@ public class AIServiceV2 {
                         responseText = processToolCalls(aiResponse.getToolCalls(), responseText, playerName);
                     }
                     
+                    // Ensure we have a response to return
+                    if (responseText == null || responseText.trim().isEmpty()) {
+                        responseText = "I've processed your request.";
+                    }
+                    
                     // Add AI response to history
                     addMessageToHistory(playerName, "assistant", responseText);
                     
@@ -326,7 +331,7 @@ public class AIServiceV2 {
         }
         
         StringBuilder toolResults = new StringBuilder();
-        if (!responseText.trim().isEmpty()) {
+        if (responseText != null && !responseText.trim().isEmpty()) {
             toolResults.append(responseText).append("\n\n");
         }
         
@@ -361,7 +366,12 @@ public class AIServiceV2 {
             }
         }
         
-        return toolResults.toString().trim();
+        String result = toolResults.toString().trim();
+        // If no results and no initial content, provide a default message
+        if (result.isEmpty() && (responseText == null || responseText.trim().isEmpty())) {
+            return "I've executed the requested tools for you.";
+        }
+        return result;
     }
     
     /**
