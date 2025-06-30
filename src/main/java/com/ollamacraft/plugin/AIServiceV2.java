@@ -151,18 +151,27 @@ public class AIServiceV2 {
                 toolProvider = new MCPToolProvider(httpClient, logger);
                 toolExecutor = new MCPToolExecutor(httpClient, toolProvider, logger);
                 
+                logger.info("=== MCP COMPONENTS INITIALIZED ===");
+                logger.info("toolProvider created: " + (toolProvider != null));
+                logger.info("toolExecutor created: " + (toolExecutor != null));
+                
                 // Load available tools
                 loadAvailableTools();
                 
                 this.toolsEnabled = true;
                 logger.info("MCP integration initialized successfully");
+                logger.info("Final state - toolsEnabled: " + toolsEnabled + ", toolExecutor: " + (toolExecutor != null));
             } else {
                 logger.info("MCP bridge not running - AI will work with basic chat functionality only");
                 this.toolsEnabled = false;
             }
         } catch (Exception e) {
             logger.warning("Failed to initialize MCP integration: " + e.getMessage());
+            logger.warning("Exception details: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            e.printStackTrace();
             this.toolsEnabled = false;
+            this.toolExecutor = null; // Explicitly set to null on failure
+            logger.warning("toolExecutor set to null due to initialization failure");
         }
     }
     
@@ -192,6 +201,21 @@ public class AIServiceV2 {
                 logger.warning("Failed to load MCP tools: " + e.getMessage());
                 this.originalMCPTools = new java.util.ArrayList<>();
             }
+        }
+    }
+    
+    /**
+     * Debug method to check current toolExecutor state
+     */
+    private void debugToolExecutorState(String context) {
+        logger.info("=== TOOL EXECUTOR STATE CHECK (" + context + ") ===");
+        logger.info("toolExecutor is null: " + (toolExecutor == null));
+        logger.info("toolsEnabled: " + toolsEnabled);
+        logger.info("toolProvider is null: " + (toolProvider == null));
+        logger.info("originalMCPTools size: " + (originalMCPTools != null ? originalMCPTools.size() : "null"));
+        
+        if (toolExecutor == null && toolsEnabled) {
+            logger.warning("INCONSISTENT STATE: toolsEnabled=true but toolExecutor=null!");
         }
     }
     
@@ -271,6 +295,7 @@ public class AIServiceV2 {
     public CompletableFuture<String> generateResponse(String message, String playerName) {
         return CompletableFuture.supplyAsync(() -> {
             try {
+                debugToolExecutorState("generateResponse for " + playerName);
                 // Clean the message (remove trigger prefix if present)
                 String cleanMessage = cleanMessage(message);
                 
@@ -295,9 +320,17 @@ public class AIServiceV2 {
                 if (aiResponse.isSuccessful()) {
                     String responseText = aiResponse.getContent();
                     
+                    logger.info("=== AI RESPONSE PROCESSING ===");
+                    logger.info("Response successful: true");
+                    logger.info("Has tool calls: " + aiResponse.hasToolCalls());
+                    logger.info("Tool calls count: " + (aiResponse.hasToolCalls() ? aiResponse.getToolCalls().size() : 0));
+                    logger.info("Response content: " + (responseText != null ? "'" + responseText + "'" : "null"));
+                    
                     // Process tool calls if present
                     if (aiResponse.hasToolCalls()) {
+                        logger.info("Processing " + aiResponse.getToolCalls().size() + " tool calls...");
                         responseText = processToolCalls(aiResponse.getToolCalls(), responseText, playerName);
+                        logger.info("Tool processing complete. Final response: " + (responseText != null ? "'" + responseText + "'" : "null"));
                     }
                     
                     // Ensure we have a response to return
@@ -316,7 +349,10 @@ public class AIServiceV2 {
                 }
                 
             } catch (Exception e) {
-                logger.severe("Error generating AI response: " + e.getMessage());
+                logger.severe("Error generating AI response for player " + playerName + ": " + e.getMessage());
+                logger.severe("Exception type: " + e.getClass().getSimpleName());
+                e.printStackTrace();
+                debugToolExecutorState("after exception in generateResponse");
                 return formatResponse("I encountered an error while processing your request. Please try again.");
             }
         });
@@ -326,9 +362,25 @@ public class AIServiceV2 {
      * Process tool calls from AI response
      */
     private String processToolCalls(List<ToolCall> toolCalls, String responseText, String playerName) {
-        if (toolExecutor == null || toolCalls.isEmpty()) {
+        logger.info("=== DEBUGGING processToolCalls ===");
+        logger.info("Player: " + playerName);
+        logger.info("Tool calls count: " + (toolCalls != null ? toolCalls.size() : "null"));
+        logger.info("Initial response text: " + (responseText != null ? "'" + responseText + "'" : "null"));
+        logger.info("toolExecutor is null: " + (toolExecutor == null));
+        logger.info("toolsEnabled: " + toolsEnabled);
+        
+        if (toolExecutor == null) {
+            logger.warning("toolExecutor is NULL - tool execution will be skipped!");
+            logger.warning("This suggests MCP integration failed or toolExecutor was not initialized properly");
+            return responseText != null ? responseText : "Tools are not available - MCP integration may have failed.";
+        }
+        
+        if (toolCalls.isEmpty()) {
+            logger.info("No tool calls to process");
             return responseText;
         }
+        
+        logger.info("Proceeding with tool execution...");
         
         StringBuilder toolResults = new StringBuilder();
         if (responseText != null && !responseText.trim().isEmpty()) {
