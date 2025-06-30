@@ -765,9 +765,25 @@ public class AIServiceV2 {
             // Wait for response with timeout
             AIResponse response = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
             
-            if (response.isSuccessful() && response.hasContent()) {
-                logger.info("Startup test successful with " + configuration.getProvider());
-                return response.getContent();
+            if (response.isSuccessful()) {
+                // Handle responses with tool calls
+                if (response.hasToolCalls()) {
+                    logger.info("Startup test successful with " + configuration.getProvider() + " (with " + response.getToolCalls().size() + " tool calls)");
+                    
+                    // Process tool calls and return the result
+                    String processedResponse = processToolCallsForStartup(response.getToolCalls(), response.getContent());
+                    return processedResponse != null ? processedResponse : "Startup test completed with tool execution.";
+                }
+                // Handle normal text responses
+                else if (response.hasContent()) {
+                    logger.info("Startup test successful with " + configuration.getProvider());
+                    return response.getContent();
+                }
+                // Success but no content or tool calls
+                else {
+                    logger.info("Startup test successful with " + configuration.getProvider() + " (empty response)");
+                    return "Startup test completed successfully.";
+                }
             } else {
                 logger.warning("Startup test failed: " + response.getErrorMessage());
                 return null;
@@ -777,6 +793,52 @@ public class AIServiceV2 {
             logger.warning("Provider startup test failed: " + e.getMessage());
             return null;
         }
+    }
+    
+    /**
+     * Process tool calls for startup test
+     * @param toolCalls List of tool calls to process
+     * @param initialContent Initial response content
+     * @return Processed response content
+     */
+    private String processToolCallsForStartup(List<ToolCall> toolCalls, String initialContent) {
+        if (toolExecutor == null || toolCalls.isEmpty()) {
+            return initialContent;
+        }
+        
+        StringBuilder result = new StringBuilder();
+        if (initialContent != null && !initialContent.trim().isEmpty()) {
+            result.append(initialContent).append(" ");
+        }
+        
+        // Execute tool calls and collect results
+        int successfulCalls = 0;
+        for (ToolCall toolCall : toolCalls) {
+            try {
+                logger.info("Executing startup tool call: " + toolCall.getName());
+                
+                // Convert tool call to MCP format
+                JsonObject mcpToolCall = toolCall.toMCPExecutorFormat();
+                
+                // Execute tool
+                JsonObject toolResult = toolExecutor.executeToolCall(mcpToolCall).get(10, java.util.concurrent.TimeUnit.SECONDS);
+                
+                if (toolResult != null) {
+                    successfulCalls++;
+                    logger.info("Tool " + toolCall.getName() + " executed successfully during startup");
+                } else {
+                    logger.warning("Tool " + toolCall.getName() + " failed during startup");
+                }
+                
+            } catch (Exception e) {
+                logger.warning("Startup tool execution failed for " + toolCall.getName() + ": " + e.getMessage());
+            }
+        }
+        
+        result.append("Executed ").append(successfulCalls).append("/").append(toolCalls.size())
+              .append(" tools successfully during startup test.");
+        
+        return result.toString();
     }
     
     /**
