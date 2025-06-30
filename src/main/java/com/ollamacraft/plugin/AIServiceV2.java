@@ -508,6 +508,11 @@ public class AIServiceV2 {
         try {
             String playerName = player.getName();
             
+            logger.info("=== sendChatMessage CALLED ===");
+            logger.info("Player: " + playerName);
+            logger.info("Message: '" + content + "'");
+            debugToolExecutorState("sendChatMessage for " + playerName);
+            
             // Get or create player-specific message history
             MessageHistory playerHistory = playerMessageHistories.computeIfAbsent(playerName, 
                 k -> {
@@ -539,20 +544,42 @@ public class AIServiceV2 {
             // Wait for response with timeout
             AIResponse response = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
             
-            if (response.isSuccessful() && response.hasContent()) {
-                String aiResponse = response.getContent();
+            logger.info("=== sendChatMessage AI RESPONSE PROCESSING ===");
+            logger.info("Player: " + playerName);
+            logger.info("Response successful: " + response.isSuccessful());
+            logger.info("Has tool calls: " + response.hasToolCalls());
+            logger.info("Tool calls count: " + (response.hasToolCalls() ? response.getToolCalls().size() : 0));
+            logger.info("Response content: " + (response.getContent() != null ? "'" + response.getContent() + "'" : "null"));
+            
+            if (response.isSuccessful()) {
+                String responseText = response.getContent();
                 
-                // Add AI response to history
-                playerHistory.addMessage(new ChatMessage("assistant", aiResponse));
+                // Process tool calls if present (same logic as generateResponse)
+                if (response.hasToolCalls()) {
+                    logger.info("Processing " + response.getToolCalls().size() + " tool calls in sendChatMessage...");
+                    responseText = processToolCalls(response.getToolCalls(), responseText, playerName);
+                    logger.info("Tool processing complete in sendChatMessage. Final response: " + (responseText != null ? "'" + responseText + "'" : "null"));
+                }
                 
-                return aiResponse;
+                // Ensure we have a response to return
+                if (responseText == null || responseText.trim().isEmpty()) {
+                    responseText = "I've processed your request.";
+                }
+                
+                // Add final response (including tool results) to history
+                playerHistory.addMessage(new ChatMessage("assistant", responseText));
+                
+                return responseText;
             } else {
                 logger.warning("AI response failed: " + response.getErrorMessage());
                 return "I'm sorry, but I couldn't process your request right now. Please try again.";
             }
             
         } catch (Exception e) {
-            logger.warning("Error processing chat message: " + e.getMessage());
+            logger.severe("Error processing chat message for player " + player.getName() + ": " + e.getMessage());
+            logger.severe("Exception type: " + e.getClass().getSimpleName());
+            e.printStackTrace();
+            debugToolExecutorState("after exception in sendChatMessage");
             return "I'm experiencing technical difficulties. Please try again later.";
         }
     }
